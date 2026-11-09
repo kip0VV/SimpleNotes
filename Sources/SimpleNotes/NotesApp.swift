@@ -6,7 +6,7 @@ import WebKit
 
 final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextViewDelegate,
   NSTextFieldDelegate, NSSearchFieldDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate,
-  NSMenuDelegate
+  NSMenuDelegate, WKNavigationDelegate
 {
   var root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     .appendingPathComponent("SimpleNotes", isDirectory: true)
@@ -32,6 +32,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   let recentButton = NSPopUpButton(frame: .zero, pullsDown: true)
   var swipe = HorizontalSwipe()
   var gestureMonitor: Any?
+  var actionKeyMonitor: Any?
   var lastGestureEvent: NSEvent?
   var lastGestureResult = false
   var touchOrigin: NSPoint?
@@ -51,7 +52,29 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   var menuVisible = true
   var savedSidebarWidth: CGFloat = 280
   let outline = SnapOutline()
-  let preview = WKWebView()
+  let previewContainer = NSView()
+  var preview: WKWebView?
+  var previewReady = false
+  var lastPreviewPayload: String?
+  var previewRevision = ""
+  var updatingTask = false
+  lazy var markdownScript: String? = Bundle.main.url(
+    forResource: "markdown-it.min", withExtension: "js"
+  )
+  .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+  var indexGeneration = 0
+  let indexQueue: OperationQueue = {
+    let queue = OperationQueue()
+    queue.name = "SimpleNotes.noteIndex"
+    queue.qualityOfService = .userInitiated
+    queue.maxConcurrentOperationCount = 1
+    return queue
+  }()
+  var noteBodyCache: [URL: CachedNoteBody] = [:]
+  var keyboardContextURL: URL?
+  var shortcutMenuItems: [String: NSMenuItem] = [:]
+  var saveNoteButton: NSButton?
+  let zoomLabel = NSButton(title: "100%", target: nil, action: nil)
   let mode = NSSegmentedControl(
     labels: ["Редактор", "Просмотр Markdown"], trackingMode: .selectOne, target: nil, action: nil)
   var tree: [NoteNode] = []
@@ -81,14 +104,14 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   var currentURL: URL?
   var loadedContent: String?
   var noteDate = ""
-  var dirty = false
+  var dirty = false { didSet { window?.isDocumentEdited = dirty } }
   var loadingTree = false
   var editorScroll: NSScrollView!
 
   let topics = NSPopUpButton()
   let titleField = NSTextField()
   let editor = NotesTextView()
-  let status = NSTextField(labelWithString: "⌘Enter — сохранить")
+  let status = NSTextField(labelWithString: "Готово")
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.regular)
@@ -146,8 +169,6 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     newNoteButton.action = #selector(newNote)
     newNoteButton.bezelStyle = .rounded
     newNoteButton.controlSize = .large
-    newNoteButton.keyEquivalent = "n"
-    newNoteButton.keyEquivalentModifierMask = [.command]
     newNoteButton.toolTip = "Новая заметка · ⌘N"
     topics.target = self
     topics.action = #selector(topicChanged)
@@ -167,7 +188,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     mode.selectedSegment = 0
     mode.target = self
     mode.action = #selector(changeMode)
-    preview.isHidden = true
+    previewContainer.isHidden = true
     scroll.hasVerticalScroller = true
     scroll.borderType = .bezelBorder
     editor.isRichText = false
@@ -183,12 +204,12 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     status.font = .systemFont(ofSize: 12)
     status.textColor = .secondaryLabelColor
     let save = NSButton(title: "Сохранить заметку  ⌘↩", target: self, action: #selector(saveNote))
+    saveNoteButton = save
     save.bezelStyle = .rounded
-    save.keyEquivalent = "\r"
-    save.keyEquivalentModifierMask = [.command]
+    let zoomControls = makeZoomControls()
     for item in [
-      heading, menuToggle, row, titleField, mode, newNoteButton, scroll, preview, status,
-      recentButton, save, headerHandle, topicHandle, formatting,
+      heading, menuToggle, row, titleField, mode, newNoteButton, scroll, previewContainer, status,
+      recentButton, save, headerHandle, topicHandle, formatting, zoomControls,
     ] {
       item.translatesAutoresizingMaskIntoConstraints = false
       view.addSubview(item)
@@ -239,16 +260,19 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
         greaterThanOrEqualTo: heading.trailingAnchor, constant: 16),
       mode.leadingAnchor.constraint(equalTo: row.leadingAnchor),
       mode.topAnchor.constraint(equalTo: titleField.bottomAnchor, constant: 12),
-      preview.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
-      preview.trailingAnchor.constraint(equalTo: scroll.trailingAnchor),
-      preview.topAnchor.constraint(equalTo: scroll.topAnchor),
-      preview.bottomAnchor.constraint(equalTo: scroll.bottomAnchor),
+      previewContainer.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
+      previewContainer.trailingAnchor.constraint(equalTo: scroll.trailingAnchor),
+      previewContainer.topAnchor.constraint(equalTo: scroll.topAnchor),
+      previewContainer.bottomAnchor.constraint(equalTo: scroll.bottomAnchor),
       recentButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
       recentButton.centerYAnchor.constraint(equalTo: status.centerYAnchor),
       recentButton.widthAnchor.constraint(equalToConstant: 135),
       status.leadingAnchor.constraint(equalTo: recentButton.trailingAnchor, constant: 10),
       status.bottomAnchor.constraint(equalTo: save.topAnchor, constant: -12),
       status.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
+      zoomControls.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
+      zoomControls.centerYAnchor.constraint(equalTo: save.centerYAnchor),
+      zoomControls.trailingAnchor.constraint(lessThanOrEqualTo: save.leadingAnchor, constant: -12),
       save.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
       save.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
     ])
@@ -259,9 +283,11 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
         && headerViews.contains { $0 === (constraint.firstItem as? NSView) }
     }.map { ($0, $0.constant) }
     applyHeaderScale(CGFloat(defaults.object(forKey: "headerScale") as? Double ?? 1))
+    applyNoteZoom()
     applyTheme()
     configureResizing(outer: outer, main: view)
     installGestures()
+    installActionKeyMonitor()
     topicHandle.toolTip = "Потяни вправо, чтобы увеличить выбор темы и кнопку"
     var startTopicScale: CGFloat = 1
     topicHandle.beginResize = { [weak self] in
@@ -284,6 +310,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     setMenuVisible(!defaults.bool(forKey: "sidebarHidden"))
     showWindow()
     window.makeFirstResponder(titleField)
+    updateActionShortcuts()
     prepareQuickNoteService()
   }
 
@@ -330,6 +357,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       return
     }
     guard root != oldRoot else { return }
+    noteBodyCache.removeAll()
     noteNotifications.removeAllPendingNotificationRequests()
     defaults.removeObject(forKey: "reminders")
     for key in [
@@ -563,7 +591,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   @objc func toggleDate() {
     defaults.set(!showDates, forKey: "showDates")
     status.stringValue =
-      showDates && !noteDate.isEmpty ? "\(noteDate) · ⌘Enter — сохранить" : "⌘Enter — сохранить"
+      showDates && !noteDate.isEmpty ? "\(noteDate)" : "Готово"
     if mode.selectedSegment == 1 { renderMarkdown() }
   }
   @objc func changeTheme(_ sender: NSMenuItem) {
@@ -613,6 +641,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     windowItem.submenu = windowMenu
     menu.addItem(windowItem)
     NSApp.windowsMenu = windowMenu
+    installActionShortcuts(in: menu)
     NSApp.mainMenu = menu
     editor.allowsUndo = true
   }
@@ -624,7 +653,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
           [String(node.url.path.dropFirst(root.path.count + 1))] + folderPaths(node.children)
         }
       }
-      let folders = folderPaths(try nodes(in: root))
+      let folders = folderPaths(try folderNodes(in: root))
       topics.removeAllItems()
       topics.addItem(withTitle: "Без папки")
       topics.lastItem?.representedObject = ""
@@ -783,8 +812,10 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       titleField.stringValue = title
       dirty = false
       persistDraft()
+      noteBodyCache.removeValue(forKey: destination)
       refreshTree()
-      status.stringValue = "Сохранено в «\(topic)»" + (showDates ? " · \(date)" : "")
+      status.stringValue =
+        "Сохранено в «\(topic.isEmpty ? "Без папки" : topic)»" + (showDates ? " · \(date)" : "")
       if mode.selectedSegment == 1 { renderMarkdown() }
       return true
     } catch {
@@ -863,43 +894,31 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
         lessThanOrEqualTo: settingsButton.leadingAnchor, constant: -6),
     ])
   }
-  func nodes(in folder: URL) throws -> [NoteNode] {
-    let entries = try FileManager.default.contentsOfDirectory(
-      at: folder, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
-      options: [.skipsHiddenFiles])
-    let saved = customOrder[relativePath(folder)] ?? []
-    let positions = Dictionary(
-      saved.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { first, _ in first })
-    return try entries.sorted {
-      let first = positions[$0.lastPathComponent] ?? Int.max
-      let second = positions[$1.lastPathComponent] ?? Int.max
-      return first == second
-        ? $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
-        : first < second
-    }.compactMap { url in
-      let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-      if values.isSymbolicLink == true || url.pathExtension == "app" { return nil }
-      if values.isDirectory == true {
-        return NoteNode(url: url, children: try nodes(in: url), isFolder: true)
-      }
-      guard ["txt", "md", "markdown"].contains(url.pathExtension.lowercased()) else { return nil }
-      let node = NoteNode(url: url)
-      if let content = try? String(contentsOf: url, encoding: .utf8) {
-        let lines = content.components(separatedBy: "\n")
-        node.searchBody =
-          lines.count >= 4 && lines[2].hasPrefix("Тема — ")
-          ? lines.dropFirst(lines[3].isEmpty ? 4 : 3).joined(separator: "\n") : content
-      }
-      return node
-    }
-  }
   @objc func refreshTree() {
-    do {
-      allNotes = try nodes(in: root)
-      applySearch()
-    } catch {
-      loadingTree = false
-      showError(error.localizedDescription)
+    indexGeneration += 1
+    let generation = indexGeneration
+    let directory = root
+    let order = customOrder
+    let cached = noteBodyCache
+    indexQueue.cancelAllOperations()
+    indexQueue.addOperation { [weak self] in
+      var scanner = NoteIndexScanner(root: directory, order: order, cache: cached)
+      let result = Result { try scanner.scan() }
+      let updatedCache = scanner.cache
+      DispatchQueue.main.async { [weak self] in
+        guard let self = self, self.indexGeneration == generation, self.root == directory else {
+          return
+        }
+        switch result {
+        case .success(let notes):
+          self.allNotes = notes
+          self.noteBodyCache = updatedCache
+          self.applySearch()
+        case .failure(let error):
+          self.loadingTree = false
+          self.showError(error.localizedDescription)
+        }
+      }
     }
   }
   func applySearch() {
@@ -1075,7 +1094,9 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     }
     do {
       let oldParent = source.deletingLastPathComponent()
-      let siblings = try nodes(in: parent).map { $0.url.lastPathComponent }
+      let siblings = try orderedNoteEntries(in: parent, root: root, order: customOrder).map {
+        $0.lastPathComponent
+      }
       var insertion = index < 0 ? siblings.count : min(index, siblings.count)
       if oldParent == parent, let oldIndex = siblings.firstIndex(of: source.lastPathComponent),
         oldIndex < insertion
@@ -1346,7 +1367,16 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     }
     menu.removeAllItems()
     let row = outline.clickedRow >= 0 ? outline.clickedRow : outline.selectedRow
-    guard row >= 0, let node = outline.item(atRow: row) as? NoteNode else { return }
+    let selected = row >= 0 ? outline.item(atRow: row) as? NoteNode : nil
+    let contextNode = keyboardContextURL.map { url in
+      findNode(url, in: allNotes)
+        ?? NoteNode(
+          url: url,
+          isFolder: (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true)
+    }
+    guard let node = contextNode ?? selected else {
+      return
+    }
     let context = ["path": relativePath(node.url)]
     func add(_ title: String, _ action: Selector, _ symbol: String? = nil) {
       let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
@@ -1649,9 +1679,11 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       order[targetKey + key.dropFirst(sourceKey.count)] = value
     }
     let parentKey = relativePath(source.deletingLastPathComponent())
-    var siblings = (try nodes(in: source.deletingLastPathComponent())).map {
-      $0.url.lastPathComponent
-    }.filter { $0 != target.lastPathComponent }
+    var siblings =
+      (try orderedNoteEntries(
+        in: source.deletingLastPathComponent(), root: root, order: customOrder)).map {
+        $0.lastPathComponent
+      }.filter { $0 != target.lastPathComponent }
     let index = siblings.firstIndex(of: source.lastPathComponent).map { $0 + 1 } ?? siblings.count
     siblings.insert(target.lastPathComponent, at: index)
     order[parentKey] = siblings
@@ -1781,8 +1813,8 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     editor.undoManager?.removeAllActions()
     status.stringValue =
       !showDates || noteDate.isEmpty
-      ? "\(url.lastPathComponent) · ⌘Enter — сохранить"
-      : "\(noteDate) · ⌘Enter — сохранить изменения"
+      ? "\(url.lastPathComponent)"
+      : "\(noteDate)"
   }
   func restoreEditingState() {
     guard let path = defaults.string(forKey: "draftPath") else {
@@ -1807,37 +1839,14 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     mode.selectedSegment = 0
     changeMode()
     persistDraft()
-    status.stringValue = "Новая заметка · ⌘Enter — сохранить"
+    status.stringValue = "Новая заметка"
     window.makeFirstResponder(titleField)
   }
   @objc func changeMode() {
     let isPreview = mode.selectedSegment == 1
     editorScroll.isHidden = isPreview
-    preview.isHidden = !isPreview
+    previewContainer.isHidden = !isPreview
     if isPreview { renderMarkdown() }
-  }
-  func renderMarkdown() {
-    guard let scriptURL = Bundle.main.url(forResource: "markdown-it.min", withExtension: "js"),
-      let script = try? String(contentsOf: scriptURL, encoding: .utf8)
-    else {
-      showError("Не найден компонент предпросмотра Markdown.")
-      return
-    }
-    let data = try! JSONSerialization.data(withJSONObject: [
-      editor.string, titleField.stringValue, showDates ? noteDate : "",
-    ])
-    let json = String(data: data, encoding: .utf8)!.replacingOccurrences(of: "<", with: "\\u003c")
-    let scheme =
-      (NSApp.appearance ?? window.effectiveAppearance).bestMatch(from: [.darkAqua, .aqua])
-        == .darkAqua ? "dark" : "light"
-    let html = """
-      <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"><style>
-      :root{color-scheme:\(scheme)}body{font:16px -apple-system,BlinkMacSystemFont,sans-serif;line-height:1.65;margin:24px;overflow-wrap:anywhere}h1,h2,h3{line-height:1.25}h1{font-size:28px}h2{font-size:23px}h3{font-size:19px}pre{padding:16px;background:rgba(128,128,128,.15);border-radius:8px;overflow:auto}code{font-family:ui-monospace,monospace;font-size:.9em}blockquote{border-left:3px solid #888;margin-left:0;padding-left:16px;color:#888}table{border-collapse:collapse;display:block;overflow:auto}th,td{border:1px solid #888;padding:7px 12px}a{color:#609bff}.date{color:#888;font-size:12px}hr{border:0;border-top:1px solid #888}
-      </style></head><body><h1 id="title"></h1><div class="date" id="date"></div><main id="body"></main><script>\(script)
-      const note=\(json);document.getElementById('title').textContent=note[1];document.getElementById('date').textContent=note[2];document.getElementById('body').innerHTML=markdownit({html:false,linkify:true,breaks:true}).render(note[0]);
-      </script></body></html>
-      """
-    preview.loadHTMLString(html, baseURL: nil)
   }
   func showError(_ message: String) {
     let alert = NSAlert()

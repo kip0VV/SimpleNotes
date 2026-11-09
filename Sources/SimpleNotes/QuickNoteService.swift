@@ -13,12 +13,19 @@ extension NotesApp {
     NSApp.servicesProvider = self
     if defaults.string(forKey: "quickNoteServiceCharacter") == nil,
       let code = defaults.object(forKey: "quickNoteKeyCode") as? UInt32,
-      let character = shortcutCharacter(keyCode: code)
+      let character = Self.shortcutCharacter(keyCode: code)
     {
       defaults.set(character, forKey: "quickNoteServiceCharacter")
       setQuickNoteServiceShortcut(
         serviceKeyEquivalent(
           character: character, modifiers: UInt32(defaults.integer(forKey: "quickNoteModifiers"))))
+    }
+    if let character = defaults.string(forKey: "quickNoteServiceCharacter") {
+      let action = NoteAction(
+        id: "global", title: "Быстрая заметка", group: "",
+        key: character,
+        modifiers: eventModifiers(UInt32(defaults.integer(forKey: "quickNoteModifiers"))))
+      defaults.set(bindingLabel(action), forKey: "quickNoteLabel")
     }
     NSUpdateDynamicServices()
   }
@@ -57,8 +64,8 @@ extension NotesApp {
     NSUpdateDynamicServices()
   }
 
-  func shortcutCharacter(keyCode: UInt32) -> String? {
-    guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
+  static func shortcutCharacter(keyCode: UInt32) -> String? {
+    guard let source = TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue(),
       let pointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData)
     else { return nil }
     let data = Unmanaged<CFData>.fromOpaque(pointer).takeUnretainedValue()

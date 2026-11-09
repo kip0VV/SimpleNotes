@@ -19,13 +19,22 @@ final class ShortcutRecorder: NSView {
       at: NSPoint(x: max(8, (bounds.width - size.width) / 2), y: (bounds.height - size.height) / 2),
       withAttributes: attributes)
   }
+  override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    guard !event.modifierFlags.intersection([.command, .option, .control]).isEmpty else {
+      return super.performKeyEquivalent(with: event)
+    }
+    keyDown(with: event)
+    return true
+  }
   override func keyDown(with event: NSEvent) {
     let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
     guard !flags.intersection([.command, .option, .control]).isEmpty else {
       NSSound.beep()
       return
     }
-    serviceCharacter = event.characters(byApplyingModifiers: [])?.lowercased()
+    serviceCharacter =
+      NotesApp.shortcutCharacter(keyCode: UInt32(event.keyCode))
+      ?? event.characters(byApplyingModifiers: [])?.lowercased()
     keyCode = UInt32(event.keyCode)
     modifiers = 0
     var symbols = ""
@@ -46,7 +55,10 @@ final class ShortcutRecorder: NSView {
       symbols += "⌘"
     }
     label =
-      symbols + (serviceCharacter?.uppercased() ?? "Клавиша \(event.keyCode)")
+      symbols
+      + (["\r": "↩", "\t": "⇥", "\u{1b}": "⎋", "\u{7f}": "⌫", "\u{8}": "⌫", " ": "Пробел"][
+        serviceCharacter ?? ""]
+        ?? serviceCharacter?.uppercased() ?? "Клавиша \(event.keyCode)")
     needsDisplay = true
   }
 }
@@ -67,7 +79,21 @@ extension NotesApp: UNUserNotificationCenterDelegate {
     if notificationsEnabled { rescheduleReminders() }
   }
 
+  func suspendQuickNoteHotkey() {
+    if let key = quickHotKey {
+      UnregisterEventHotKey(key)
+      quickHotKey = nil
+    }
+  }
+  func restoreQuickNoteHotkey() {
+    if quickHotKey == nil, let code = defaults.object(forKey: "quickNoteKeyCode") as? UInt32 {
+      _ = registerQuickNote(
+        key: code, modifiers: UInt32(defaults.integer(forKey: "quickNoteModifiers")))
+    }
+  }
   @objc func configureQuickNoteShortcut() {
+    suspendQuickNoteHotkey()
+    defer { restoreQuickNoteHotkey() }
     let alert = NSAlert()
     alert.messageText = "Горячая клавиша быстрой заметки"
     alert.informativeText =
@@ -97,6 +123,12 @@ extension NotesApp: UNUserNotificationCenterDelegate {
       character.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) })
     else {
       showError("Для системной команды выбери сочетание с буквой или цифрой.")
+      return
+    }
+    if let conflict = shortcutConflict(
+      key: character, modifiers: eventModifiers(recorder.modifiers), excluding: "global")
+    {
+      showError("Это сочетание используется для «\(conflict)».")
       return
     }
     guard registerQuickNote(key: code, modifiers: recorder.modifiers) else {

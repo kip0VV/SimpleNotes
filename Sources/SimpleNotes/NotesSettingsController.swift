@@ -10,28 +10,55 @@ final class NotesSettingsController: NSWindowController {
   let notifications = NSButton(
     checkboxWithTitle: "Уведомления о заметках", target: nil, action: nil)
   let shortcut = NSTextField(labelWithString: "")
+  var actionLabels: [String: NSTextField] = [:]
   let folder = NSTextField(wrappingLabelWithString: "")
 
   init(app: NotesApp) {
     self.app = app
     let window = NSWindow(
-      contentRect: NSRect(x: 0, y: 0, width: 600, height: 570),
-      styleMask: [.titled, .closable], backing: .buffered, defer: false)
+      contentRect: NSRect(x: 0, y: 0, width: 700, height: 650),
+      styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+    window.minSize = NSSize(width: 650, height: 560)
     window.title = "Настройки SimpleNotes"
     window.isReleasedWhenClosed = false
     super.init(window: window)
     window.center()
-    let stack = NSStackView()
-    stack.orientation = .vertical
-    stack.alignment = .leading
-    stack.spacing = 12
-    stack.translatesAutoresizingMaskIntoConstraints = false
-    window.contentView!.addSubview(stack)
+    let tabs = NSTabView()
+    tabs.translatesAutoresizingMaskIntoConstraints = false
+    window.contentView!.addSubview(tabs)
     NSLayoutConstraint.activate([
-      stack.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 26),
-      stack.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor, constant: -26),
-      stack.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 24),
+      tabs.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 16),
+      tabs.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor, constant: -16),
+      tabs.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 16),
+      tabs.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor, constant: -16),
     ])
+    func tab(_ title: String) -> NSStackView {
+      let item = NSTabViewItem(identifier: title)
+      item.label = title
+      let scroll = NSScrollView()
+      scroll.hasVerticalScroller = true
+      scroll.drawsBackground = false
+      let document = SettingsDocumentView()
+      document.translatesAutoresizingMaskIntoConstraints = false
+      scroll.documentView = document
+      let stack = NSStackView()
+      stack.orientation = .vertical
+      stack.alignment = .leading
+      stack.spacing = 12
+      stack.translatesAutoresizingMaskIntoConstraints = false
+      document.addSubview(stack)
+      NSLayoutConstraint.activate([
+        document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+        stack.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 20),
+        stack.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -20),
+        stack.topAnchor.constraint(equalTo: document.topAnchor, constant: 20),
+        stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -20),
+      ])
+      item.view = scroll
+      tabs.addTabViewItem(item)
+      return stack
+    }
+    let stack = tab("Основные")
     func heading(_ title: String) {
       let label = NSTextField(labelWithString: title)
       label.font = .boldSystemFont(ofSize: 14)
@@ -66,14 +93,8 @@ final class NotesSettingsController: NSWindowController {
     hint.textColor = .secondaryLabelColor
     stack.addArrangedSubview(hint)
     divider()
-    heading("Клавиши и напоминания")
-    row(shortcut, button("Изменить…", #selector(changeShortcut)))
+    heading("Напоминания")
     stack.addArrangedSubview(notifications)
-    let keys = NSTextField(
-      labelWithString: "В приложении   ⌘N — новая заметка   ·   ⌘Enter — сохранить")
-    keys.font = .systemFont(ofSize: 12)
-    keys.textColor = .secondaryLabelColor
-    stack.addArrangedSubview(keys)
     divider()
     heading("Папка заметок")
     folder.isSelectable = true
@@ -89,6 +110,48 @@ final class NotesSettingsController: NSWindowController {
       control.target = self
       control.action = #selector(toggle(_:))
     }
+    let keyboard = tab("Горячие клавиши")
+    let description = NSTextField(
+      wrappingLabelWithString:
+        "Быстрая заметка запускает приложение из других окон. Остальные сочетания действуют внутри SimpleNotes. Нажми «Изменить», чтобы назначить своё сочетание или вернуть стандартное."
+    )
+    description.textColor = .secondaryLabelColor
+    keyboard.addArrangedSubview(description)
+    description.widthAnchor.constraint(equalTo: keyboard.widthAnchor).isActive = true
+    let globalRow = NSStackView(views: [
+      NSTextField(labelWithString: "Быстрая заметка из любого приложения"),
+      shortcut, button("Изменить…", #selector(changeShortcut)),
+    ])
+    shortcut.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
+    shortcut.textColor = .secondaryLabelColor
+    globalRow.spacing = 12
+    keyboard.addArrangedSubview(globalRow)
+    var group = ""
+    for action in app.noteActions {
+      if action.group != group {
+        let heading = NSTextField(labelWithString: action.group)
+        heading.font = .boldSystemFont(ofSize: 14)
+        keyboard.addArrangedSubview(heading)
+        keyboard.setCustomSpacing(8, after: heading)
+        group = action.group
+      }
+      let title = NSTextField(labelWithString: action.title)
+      title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+      let label = NSTextField(labelWithString: app.bindingLabel(action))
+      label.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
+      label.textColor = .secondaryLabelColor
+      label.alignment = .right
+      label.widthAnchor.constraint(equalToConstant: 110).isActive = true
+      actionLabels[action.id] = label
+      let edit = button("Изменить…", #selector(changeActionShortcut(_:)))
+      edit.identifier = NSUserInterfaceItemIdentifier(action.id)
+      let row = NSStackView(views: [title, NSView(), label, edit])
+      row.spacing = 12
+      keyboard.addArrangedSubview(row)
+      row.widthAnchor.constraint(equalTo: keyboard.widthAnchor).isActive = true
+    }
+    let reset = button("Вернуть стандартные сочетания приложения", #selector(resetActionShortcuts))
+    keyboard.addArrangedSubview(reset)
   }
 
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -102,8 +165,11 @@ final class NotesSettingsController: NSWindowController {
     reverse.state = app.defaults.bool(forKey: "reverseSidebarSwipe") ? .on : .off
     notifications.state = app.notificationsEnabled ? .on : .off
     shortcut.stringValue =
-      "Быстрая заметка — " + (app.defaults.string(forKey: "quickNoteLabel") ?? "не назначено")
+      (app.defaults.string(forKey: "quickNoteLabel") ?? "Не назначено")
     folder.stringValue = app.root.path
+    for action in app.noteActions {
+      actionLabels[action.id]?.stringValue = app.bindingLabel(action)
+    }
   }
 
   @objc func changeTheme() {
@@ -136,6 +202,32 @@ final class NotesSettingsController: NSWindowController {
     app.chooseStorage()
     refresh()
   }
+  @objc func changeActionShortcut(_ sender: NSButton) {
+    guard let id = sender.identifier?.rawValue else { return }
+    app.configureActionShortcut(id)
+    refresh()
+  }
+  @objc func resetActionShortcuts() {
+    if let key = app.defaults.string(forKey: "quickNoteServiceCharacter"),
+      let conflict = app.noteActions.first(where: {
+        $0.key == key
+          && $0.modifiers
+            == app.eventModifiers(UInt32(app.defaults.integer(forKey: "quickNoteModifiers")))
+      })
+    {
+      app.showError(
+        "Стандартное сочетание «\(conflict.title)» занято быстрой заметкой. Сначала измени её сочетание."
+      )
+      return
+    }
+    app.defaults.removeObject(forKey: "actionShortcuts")
+    app.updateActionShortcuts()
+    refresh()
+  }
   @objc func openFolder() { app.openAllNotes() }
   @objc func openTopic() { app.openFolder() }
+}
+
+private final class SettingsDocumentView: NSView {
+  override var isFlipped: Bool { true }
 }
