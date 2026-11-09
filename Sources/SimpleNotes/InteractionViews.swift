@@ -2,14 +2,6 @@ import Cocoa
 import QuartzCore
 import WebKit
 
-final class NotesWindow: NSWindow {
-  var gestureHandler: ((NSEvent) -> Bool)?
-  override func sendEvent(_ event: NSEvent) {
-    if gestureHandler?(event) == true { return }
-    super.sendEvent(event)
-  }
-}
-
 struct HorizontalSwipe {
   var horizontal: CGFloat = 0
   var vertical: CGFloat = 0
@@ -32,7 +24,7 @@ struct HorizontalSwipe {
     }
     horizontal += x
     vertical += y
-    guard !recognized, abs(horizontal) >= 24, abs(horizontal) > abs(vertical) * 1.35 else {
+    guard !recognized, abs(horizontal) >= 16, abs(horizontal) > abs(vertical) * 1.35 else {
       return nil
     }
     recognized = true
@@ -113,5 +105,32 @@ final class SnapOutline: NSOutlineView {
   override func draggingExited(_ sender: NSDraggingInfo?) {
     guide.isHidden = true
     super.draggingExited(sender)
+  }
+}
+
+// Text views receive touch events directly, including while editing or selecting text.
+final class NotesTextView: NSTextView {
+  var gestureHandler: ((NSEvent) -> Bool)?
+  override func scrollWheel(with event: NSEvent) {
+    if gestureHandler?(event) != true { super.scrollWheel(with: event) }
+  }
+  override func swipe(with event: NSEvent) {
+    if gestureHandler?(event) != true { super.swipe(with: event) }
+  }
+  override func touchesBegan(with event: NSEvent) {
+    _ = gestureHandler?(event)
+    super.touchesBegan(with: event)
+  }
+  override func touchesMoved(with event: NSEvent) {
+    _ = gestureHandler?(event)
+    super.touchesMoved(with: event)
+  }
+  override func touchesEnded(with event: NSEvent) {
+    _ = gestureHandler?(event)
+    super.touchesEnded(with: event)
+  }
+  override func touchesCancelled(with event: NSEvent) {
+    _ = gestureHandler?(event)
+    super.touchesCancelled(with: event)
   }
 }

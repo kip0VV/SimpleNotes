@@ -31,6 +31,12 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   let topicHandle = ResizeHandle()
   let recentButton = NSPopUpButton(frame: .zero, pullsDown: true)
   var swipe = HorizontalSwipe()
+  var gestureMonitor: Any?
+  var lastGestureEvent: NSEvent?
+  var lastGestureResult = false
+  var touchOrigin: NSPoint?
+  var touchSwipeRecognized = false
+  var settingsController: NotesSettingsController?
   let newNoteButton = NSButton(title: "+ Новая заметка", target: nil, action: nil)
   var suppressHoverUntil = Date.distantPast
   let settingsButton = NSButton(title: "⋯", target: nil, action: nil)
@@ -81,7 +87,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
 
   let topics = NSPopUpButton()
   let titleField = NSTextField()
-  let editor = NSTextView()
+  let editor = NotesTextView()
   let status = NSTextField(labelWithString: "⌘Enter — сохранить")
 
   func applicationDidFinishLaunching(_ notification: Notification) {
@@ -92,7 +98,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     }
     buildMenu()
     prepareRemindersAndShortcut()
-    window = NotesWindow(
+    window = NSWindow(
       contentRect: NSRect(x: 0, y: 0, width: 1060, height: 680),
       styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false
     )
@@ -155,6 +161,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     titleField.font = .systemFont(ofSize: 20, weight: .medium)
     titleField.delegate = self
     titleField.stringValue = defaults.string(forKey: "draftTitle") ?? ""
+    let formatting = makeFormattingBar()
     let scroll = NSScrollView()
     editorScroll = scroll
     mode.selectedSegment = 0
@@ -181,7 +188,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     save.keyEquivalentModifierMask = [.command]
     for item in [
       heading, menuToggle, row, titleField, mode, newNoteButton, scroll, preview, status,
-      recentButton, save, headerHandle, topicHandle,
+      recentButton, save, headerHandle, topicHandle, formatting,
     ] {
       item.translatesAutoresizingMaskIntoConstraints = false
       view.addSubview(item)
@@ -219,7 +226,11 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       titleField.topAnchor.constraint(equalTo: row.bottomAnchor, constant: 16), titleHeight,
       scroll.leadingAnchor.constraint(equalTo: row.leadingAnchor),
       scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
-      scroll.topAnchor.constraint(equalTo: headerHandle.bottomAnchor, constant: 4),
+      formatting.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
+      formatting.trailingAnchor.constraint(lessThanOrEqualTo: scroll.trailingAnchor),
+      formatting.topAnchor.constraint(equalTo: headerHandle.bottomAnchor, constant: 4),
+      formatting.heightAnchor.constraint(equalToConstant: 28),
+      scroll.topAnchor.constraint(equalTo: formatting.bottomAnchor, constant: 6),
       scroll.bottomAnchor.constraint(equalTo: status.topAnchor, constant: -14),
       newNoteButton.trailingAnchor.constraint(equalTo: menuToggle.leadingAnchor, constant: -12),
       newNoteButton.centerYAnchor.constraint(equalTo: menuToggle.centerYAnchor),
@@ -291,7 +302,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     }
     NSApp.activate(ignoringOtherApps: true)
     let panel = NSOpenPanel()
-    panel.title = "Добро пожаловать в SimpleNotes"
+    panel.title = window == nil ? "Добро пожаловать в SimpleNotes" : "Папка заметок"
     panel.message =
       "Выбери или создай папку для заметок. Темы станут подпапками, записи будут обычными Markdown-файлами."
     panel.prompt = "Выбрать папку"
@@ -299,7 +310,9 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     panel.canChooseFiles = false
     panel.canCreateDirectories = true
     panel.allowsMultipleSelection = false
-    panel.directoryURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    panel.directoryURL =
+      FileManager.default.fileExists(atPath: root.path)
+      ? root : FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     guard panel.runModal() == .OK, let selected = panel.url else { return false }
     root = selected.standardizedFileURL
     defaults.set(root.path, forKey: "notesDirectory")
@@ -402,15 +415,60 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   func handleHorizontalGesture(delta: CGFloat) {
     suppressHoverUntil = Date().addingTimeInterval(1.5)
     manualRevealUntil = Date().addingTimeInterval(1.5)
-    setMenuVisible(delta > 0, animated: true)
+    let reveal = delta > 0
+    setMenuVisible(defaults.bool(forKey: "reverseSidebarSwipe") ? !reveal : reveal, animated: true)
   }
   func installGestures() {
-    (window as? NotesWindow)?.gestureHandler = { [weak self] event in
+    editor.gestureHandler = { [weak self] event in
       self?.processWindowGesture(event) ?? false
+    }
+    func acceptTouches(_ view: NSView) {
+      view.allowedTouchTypes = [.indirect]
+      for child in view.subviews { acceptTouches(child) }
+    }
+    if let content = window.contentView { acceptTouches(content) }
+    if let monitor = gestureMonitor { NSEvent.removeMonitor(monitor) }
+    gestureMonitor = NSEvent.addLocalMonitorForEvents(matching: [
+      .scrollWheel, .swipe, .gesture, .beginGesture, .endGesture,
+    ]) {
+      [weak self] event in
+      guard let self = self,
+        event.window === self.window || (event.window == nil && self.window.isKeyWindow)
+      else { return event }
+      return self.processWindowGesture(event) ? nil : event
     }
   }
   func processWindowGesture(_ event: NSEvent) -> Bool {
+    if event === lastGestureEvent { return lastGestureResult }
+    lastGestureEvent = event
+    lastGestureResult = updateWindowGesture(event)
+    return lastGestureResult
+  }
+  func updateWindowGesture(_ event: NSEvent) -> Bool {
     guard !menuTracking else { return false }
+    if event.type == .gesture || event.type == .beginGesture || event.type == .endGesture {
+      let touches = event.touches(matching: .touching, in: nil).filter { $0.type == .indirect }
+      guard touches.count == 2 else {
+        touchOrigin = nil
+        touchSwipeRecognized = false
+        return false
+      }
+      let center = NSPoint(
+        x: touches.reduce(0) { $0 + $1.normalizedPosition.x } / 2,
+        y: touches.reduce(0) { $0 + $1.normalizedPosition.y } / 2)
+      guard let origin = touchOrigin else {
+        touchOrigin = center
+        return false
+      }
+      let x = center.x - origin.x
+      let y = center.y - origin.y
+      if !touchSwipeRecognized && abs(x) > 0.045 && abs(x) > abs(y) * 1.5 {
+        touchSwipeRecognized = true
+        if !swipe.recognized { handleHorizontalGesture(delta: -x) }
+      }
+      return false
+    }
+    if touchSwipeRecognized && event.type == .scrollWheel { return true }
     if event.type == .swipe {
       guard abs(event.deltaX) > abs(event.deltaY), event.deltaX != 0 else { return false }
       handleHorizontalGesture(delta: event.deltaX)
@@ -495,62 +553,11 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     if autoHide.state == .off { setMenuVisible(true, animated: true) }
   }
   @objc func showSettings() {
-    menuTracking = true
     hoverTimer?.invalidate()
-    hoverTimer = nil
-    pendingVisibility = nil
-    defer { menuTracking = false }
-    let menu = NSMenu()
-    let hideItem = NSMenuItem(
-      title: "Скрывать меню при уходе курсора", action: #selector(toggleAutoHide), keyEquivalent: ""
-    )
-    hideItem.target = self
-    hideItem.state = autoHide.state
-    let openCurrent = NSMenuItem(
-      title: "Открыть папку выбранной темы", action: #selector(openFolder), keyEquivalent: "")
-    openCurrent.target = self
-    menu.addItem(openCurrent)
-    let openAll = NSMenuItem(
-      title: "Открыть папку со всеми заметками", action: #selector(openAllNotes), keyEquivalent: "")
-    openAll.target = self
-    menu.addItem(openAll)
-    let storage = NSMenuItem(
-      title: "Выбрать другую папку заметок…", action: #selector(chooseStorage), keyEquivalent: "")
-    storage.target = self
-    menu.addItem(storage)
-    menu.addItem(.separator())
-    let shortcut = NSMenuItem(
-      title: "Быстрая заметка — "
-        + (defaults.string(forKey: "quickNoteLabel") ?? "назначить клавиши…"),
-      action: #selector(configureQuickNoteShortcut), keyEquivalent: "")
-    shortcut.target = self
-    menu.addItem(shortcut)
-    let notifications = NSMenuItem(
-      title: "Уведомления о заметках", action: #selector(toggleNotifications), keyEquivalent: "")
-    notifications.target = self
-    notifications.state = notificationsEnabled ? .on : .off
-    menu.addItem(notifications)
-    menu.addItem(.separator())
-    menu.addItem(hideItem)
-    let dateItem = NSMenuItem(
-      title: "Показывать дату", action: #selector(toggleDate), keyEquivalent: "")
-    dateItem.target = self
-    dateItem.state = showDates ? .on : .off
-    menu.addItem(dateItem)
-    menu.addItem(.separator())
-    let themeItem = NSMenuItem(title: "Тема приложения", action: nil, keyEquivalent: "")
-    let themes = NSMenu()
-    for (name, value) in [("Системная", "system"), ("Светлая", "light"), ("Тёмная", "dark")] {
-      let item = NSMenuItem(title: name, action: #selector(changeTheme(_:)), keyEquivalent: "")
-      item.target = self
-      item.representedObject = value
-      item.state = (defaults.string(forKey: "appearance") ?? "system") == value ? .on : .off
-      themes.addItem(item)
-    }
-    themeItem.submenu = themes
-    menu.addItem(themeItem)
-    menu.popUp(
-      positioning: nil, at: NSPoint(x: 0, y: settingsButton.bounds.height + 4), in: settingsButton)
+    if settingsController == nil { settingsController = NotesSettingsController(app: self) }
+    settingsController?.refresh()
+    settingsController?.showWindow(nil)
+    settingsController?.window?.makeKeyAndOrderFront(nil)
   }
   @objc func toggleDate() {
     defaults.set(!showDates, forKey: "showDates")
@@ -581,6 +588,10 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     let appItem = NSMenuItem()
     menu.addItem(appItem)
     let appMenu = NSMenu()
+    let settings = appMenu.addItem(
+      withTitle: "Настройки…", action: #selector(showSettings), keyEquivalent: ",")
+    settings.target = self
+    appMenu.addItem(.separator())
     appMenu.addItem(
       withTitle: "Завершить", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     appItem.submenu = appMenu
@@ -594,6 +605,13 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       editMenu.addItem(withTitle: name, action: Selector(selector), keyEquivalent: key)
     }
     editItem.submenu = editMenu
+    let windowItem = NSMenuItem()
+    let windowMenu = NSMenu(title: "Окно")
+    windowMenu.addItem(
+      withTitle: "Закрыть окно", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+    windowItem.submenu = windowMenu
+    menu.addItem(windowItem)
+    NSApp.windowsMenu = windowMenu
     NSApp.mainMenu = menu
     editor.allowsUndo = true
   }
