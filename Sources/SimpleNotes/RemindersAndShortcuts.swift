@@ -5,6 +5,7 @@ import UserNotifications
 final class ShortcutRecorder: NSView {
   var keyCode: UInt32?
   var modifiers: UInt32 = 0
+  var serviceCharacter: String?
   var label = "Нажми удобное сочетание клавиш"
   override var acceptsFirstResponder: Bool { true }
   override func draw(_ dirtyRect: NSRect) {
@@ -24,6 +25,7 @@ final class ShortcutRecorder: NSView {
       NSSound.beep()
       return
     }
+    serviceCharacter = event.characters(byApplyingModifiers: [])?.lowercased()
     keyCode = UInt32(event.keyCode)
     modifiers = 0
     var symbols = ""
@@ -44,7 +46,7 @@ final class ShortcutRecorder: NSView {
       symbols += "⌘"
     }
     label =
-      symbols + (event.charactersIgnoringModifiers?.uppercased() ?? "Клавиша \(event.keyCode)")
+      symbols + (serviceCharacter?.uppercased() ?? "Клавиша \(event.keyCode)")
     needsDisplay = true
   }
 }
@@ -69,7 +71,7 @@ extension NotesApp: UNUserNotificationCenterDelegate {
     let alert = NSAlert()
     alert.messageText = "Горячая клавиша быстрой заметки"
     alert.informativeText =
-      "Сочетание работает из любого приложения, пока SimpleNotes запущен. В самом SimpleNotes также доступно ⌘N."
+      "Системная команда откроет SimpleNotes и создаст заметку даже после полного выхода из приложения. В самом SimpleNotes также доступно ⌘N."
     let recorder = ShortcutRecorder(frame: NSRect(x: 0, y: 0, width: 380, height: 54))
     alert.accessoryView = recorder
     alert.addButton(withTitle: "Назначить")
@@ -82,16 +84,28 @@ extension NotesApp: UNUserNotificationCenterDelegate {
         UnregisterEventHotKey(key)
         quickHotKey = nil
       }
-      for name in ["quickNoteKeyCode", "quickNoteModifiers", "quickNoteLabel"] {
+      setQuickNoteServiceShortcut(nil)
+      for name in [
+        "quickNoteKeyCode", "quickNoteModifiers", "quickNoteLabel", "quickNoteServiceCharacter",
+      ] {
         defaults.removeObject(forKey: name)
       }
       return
     }
     guard result == .alertFirstButtonReturn, let code = recorder.keyCode else { return }
+    guard let character = recorder.serviceCharacter, character.count == 1,
+      character.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) })
+    else {
+      showError("Для системной команды выбери сочетание с буквой или цифрой.")
+      return
+    }
     guard registerQuickNote(key: code, modifiers: recorder.modifiers) else {
       showError("Это сочетание уже используется. Выбери другое.")
       return
     }
+    defaults.set(character, forKey: "quickNoteServiceCharacter")
+    setQuickNoteServiceShortcut(
+      serviceKeyEquivalent(character: character, modifiers: recorder.modifiers))
     defaults.set(code, forKey: "quickNoteKeyCode")
     defaults.set(recorder.modifiers, forKey: "quickNoteModifiers")
     defaults.set(recorder.label, forKey: "quickNoteLabel")

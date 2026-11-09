@@ -284,6 +284,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     setMenuVisible(!defaults.bool(forKey: "sidebarHidden"))
     showWindow()
     window.makeFirstResponder(titleField)
+    prepareQuickNoteService()
   }
 
   var selectedTopicPath: String {
