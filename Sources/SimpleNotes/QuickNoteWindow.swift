@@ -96,7 +96,10 @@ extension NotesApp {
   }
 
   func openQuickNote() {
-    showWindow()
+    guard startupComplete, window != nil else {
+      pendingQuickNote = true
+      return
+    }
     if quickMode { flushQuickSave() }
     guard canLeaveNote() else { return }
     resetNoteForWriting()
@@ -106,6 +109,7 @@ extension NotesApp {
     quickStatus.stringValue = "Сохраняется автоматически"
     editor.quickPlaceholder = true
     guard !quickMode, let main = editorScroll.superview else {
+      showWindow()
       window.makeFirstResponder(editor)
       return
     }
@@ -129,6 +133,7 @@ extension NotesApp {
     window.title = "Быстрая запись"
     window.setContentSize(NSSize(width: 470, height: 340))
     main.layoutSubtreeIfNeeded()
+    showWindow()
     window.makeFirstResponder(editor)
   }
 

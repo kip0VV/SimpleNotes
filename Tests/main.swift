@@ -8,7 +8,9 @@ let application = NSApplication.shared
 let testDomain = Bundle.main.bundleIdentifier!
 UserDefaults.standard.removePersistentDomain(forName: testDomain)
 defer { UserDefaults.standard.removePersistentDomain(forName: testDomain) }
+runLaunchChecks()
 let notes = NotesApp()
+notes.startupComplete = true
 notes.window = NSWindow(
   contentRect: NSRect(x: 0, y: 0, width: 700, height: 550), styleMask: [.titled],
   backing: .buffered, defer: false)
@@ -189,3 +191,6 @@ try runReminderListChecks(notes: notes, fixture: fixture)
 try runManyRemindersChecks(notes: notes, fixture: fixture)
 
 try runCriticalChecks(notes: notes, fixture: fixture)
+
+let regressionReport = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("test-result.txt")
+try "PASS: all regression checks completed at \(Date())\n".write(to: regressionReport, atomically: true, encoding: .utf8)

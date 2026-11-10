@@ -2,6 +2,7 @@
 set -euo pipefail
 project_root="$(cd "$(dirname "$0")/.." && pwd)"
 mkdir -p "$project_root/build"
+rm -f "$project_root/build/test-result.txt"
 test_app="$project_root/build/SimpleNotesTests.app"
 mkdir -p "$test_app/Contents/MacOS" "$test_app/Contents/Resources"
 /usr/libexec/PlistBuddy -c Clear "$test_app/Contents/Info.plist" >/dev/null 2>&1 || true

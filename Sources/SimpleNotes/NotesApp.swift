@@ -8,6 +8,9 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   NSTextFieldDelegate, NSSearchFieldDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate,
   NSMenuDelegate, WKNavigationDelegate
 {
+  var startupComplete = false
+  var pendingQuickNote = false
+  var pendingRegularWindow = false
   let quickTopics = NSPopUpButton()
   let quickMore = NSPopUpButton(frame: .zero, pullsDown: true)
   let quickStatus = NSTextField(labelWithString: "Сохраняется автоматически")
@@ -345,7 +348,6 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       self.applyTopicScale(startTopicScale + delta / 300)
       view.layoutSubtreeIfNeeded()
     }
-    showWindow()
     refreshTopics(select: defaults.string(forKey: "selectedTopic") ?? "Разное")
     restoreEditingState()
     refreshTree()
@@ -355,10 +357,18 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     _ = window.setFrameUsingName("NotesWindowLayout")
     autoHide.state = defaults.bool(forKey: "autoHideSidebar") ? .on : .off
     setMenuVisible(!defaults.bool(forKey: "sidebarHidden"))
-    showWindow()
     window.makeFirstResponder(titleField)
     updateActionShortcuts()
     prepareQuickNoteService()
+    startupComplete = true
+    if pendingQuickNote {
+      pendingQuickNote = false
+      pendingRegularWindow = false
+      openQuickNote()
+    } else if pendingRegularWindow {
+      pendingRegularWindow = false
+      showWindow()
+    }
   }
 
   var selectedTopicPath: String {
@@ -766,8 +776,28 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     window.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
   }
-  func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool
-  {
+  static func isServiceLaunch(_ event: NSAppleEventDescriptor?) -> Bool {
+    event?.paramDescriptor(forKeyword: AEKeyword(keyAEPropData))?.enumCodeValue
+      == AEKeyword(keyAELaunchedAsServiceItem)
+  }
+
+  func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
+    // Services request their own compact window after startup has completed.
+    guard !Self.isServiceLaunch(NSAppleEventManager.shared().currentAppleEvent) else { return false }
+    if startupComplete {
+      showWindow()
+    } else {
+      pendingRegularWindow = true
+    }
+    return false
+  }
+
+  func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+    guard !Self.isServiceLaunch(NSAppleEventManager.shared().currentAppleEvent) else { return false }
+    guard startupComplete else {
+      pendingRegularWindow = true
+      return true
+    }
     expandQuickNote()
     refreshTopics(select: selectedTopicPath)
     refreshTree()
