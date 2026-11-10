@@ -177,3 +177,5 @@ try runFeatureChecks(notes: notes, fixture: fixture)
 try runMarkdownChecks(notes: notes, fixture: fixture)
 
 runLayoutChecks(notes: notes)
+
+runReminderChecks()

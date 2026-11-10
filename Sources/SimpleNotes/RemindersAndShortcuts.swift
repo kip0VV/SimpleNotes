@@ -207,19 +207,27 @@ extension NotesApp: UNUserNotificationCenterDelegate {
     let alert = NSAlert()
     alert.messageText = "Напомнить о заметке"
     alert.informativeText = url.deletingPathExtension().lastPathComponent
-    let picker = NSDatePicker(frame: NSRect(x: 0, y: 0, width: 320, height: 170))
-    picker.datePickerStyle = .clockAndCalendar
-    picker.datePickerElements = [.yearMonthDay, .hourMinute]
-    picker.dateValue = Date().addingTimeInterval(3600)
-    picker.minDate = Date().addingTimeInterval(30)
-    alert.accessoryView = picker
+    let savedTime = reminderRecords[relativePath(url)]?["time"] as? Double
+    let previous = savedTime.map { Date(timeIntervalSince1970: $0) }
+    let initial = previous.flatMap { $0 > Date() ? $0 : nil } ?? Date().addingTimeInterval(3600)
+    let input = ReminderDateInput(date: initial)
+    alert.accessoryView = input
     alert.addButton(withTitle: "Напомнить")
     alert.addButton(withTitle: "Отмена")
-    guard alert.runModal() == .alertFirstButtonReturn else { return }
-    let date = picker.dateValue
-    guard date > Date() else {
-      showError("Выбери время в будущем.")
-      return
+    alert.window.initialFirstResponder = input.time
+    var date: Date
+    while true {
+      guard alert.runModal() == .alertFirstButtonReturn else { return }
+      guard alert.window.makeFirstResponder(nil), let selected = input.selectedDate() else {
+        showError("Введи время в формате ЧЧ:ММ, например 18:30.")
+        continue
+      }
+      guard selected > Date() else {
+        showError("Выбери дату и время в будущем.")
+        continue
+      }
+      date = selected
+      break
     }
     let schedule = { [weak self] in self?.saveReminder(for: url, at: date) }
     if notificationsEnabled {
