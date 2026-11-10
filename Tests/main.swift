@@ -1,6 +1,9 @@
 import Cocoa
 
 let application = NSApplication.shared
+let testDomain = Bundle.main.bundleIdentifier!
+UserDefaults.standard.removePersistentDomain(forName: testDomain)
+defer { UserDefaults.standard.removePersistentDomain(forName: testDomain) }
 let notes = NotesApp()
 notes.window = NSWindow(
   contentRect: NSRect(x: 0, y: 0, width: 700, height: 550), styleMask: [.titled],
@@ -168,3 +171,9 @@ while Date() < switchDeadline && notes.indexQueue.operationCount > 0 {
 RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 precondition(notes.root == beta && notes.allNotes.isEmpty)
 print("Optimization, zoom, shortcut and cache regression checks passed")
+
+try runFeatureChecks(notes: notes, fixture: fixture)
+
+try runMarkdownChecks(notes: notes, fixture: fixture)
+
+runLayoutChecks(notes: notes)

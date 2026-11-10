@@ -88,6 +88,12 @@ func orderedNoteEntries(in folder: URL, root: URL, order: [String: [String]]) th
     return values.isSymbolicLink != true && url.pathExtension.lowercased() != "app"
       && (values.isDirectory == true
         || ["txt", "md", "markdown"].contains(url.pathExtension.lowercased()))
+  }.map { url in
+    // Directory enumeration can expand /var into /private/var. Keep every entry
+    // relative to the selected library so topic paths and preferences stay consistent.
+    folder.appendingPathComponent(
+      url.lastPathComponent,
+      isDirectory: (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true)
   }.sorted {
     let first = positions[$0.lastPathComponent] ?? Int.max
     let second = positions[$1.lastPathComponent] ?? Int.max

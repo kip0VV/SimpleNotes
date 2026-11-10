@@ -102,9 +102,9 @@ extension NotesApp {
         flags == [.command] || flags == [.command, .shift]
       {
         if flags.contains(.shift) {
-          self.editor.undoManager?.redo()
+          self.editor.redo(nil)
         } else {
-          self.editor.undoManager?.undo()
+          self.editor.undo(nil)
         }
         self.renderMarkdown()
         self.status.stringValue = self.dirty ? "Есть несохранённые изменения" : "Готово"

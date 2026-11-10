@@ -1450,7 +1450,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     func folders(_ nodes: [NoteNode]) -> [URL] {
       nodes.filter { $0.isFolder }.flatMap { [$0.url] + folders($0.children) }
     }
-    let targets = (node.isFolder ? [root] : []) + folders(allNotes)
+    let targets = [root] + folders(allNotes)
     for target in targets
     where target != node.url && !target.path.hasPrefix(node.url.path + "/")
       && target != node.url.deletingLastPathComponent()

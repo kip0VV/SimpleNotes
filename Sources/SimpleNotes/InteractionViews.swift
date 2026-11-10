@@ -111,6 +111,16 @@ final class SnapOutline: NSOutlineView {
 // Text views receive touch events directly, including while editing or selecting text.
 final class NotesTextView: NSTextView {
   var gestureHandler: ((NSEvent) -> Bool)?
+  @objc func undo(_ sender: Any?) {
+    guard undoManager?.canUndo == true else { return }
+    undoManager?.undo()
+    didChangeText()
+  }
+  @objc func redo(_ sender: Any?) {
+    guard undoManager?.canRedo == true else { return }
+    undoManager?.redo()
+    didChangeText()
+  }
   override func scrollWheel(with event: NSEvent) {
     if gestureHandler?(event) != true { super.scrollWheel(with: event) }
   }
