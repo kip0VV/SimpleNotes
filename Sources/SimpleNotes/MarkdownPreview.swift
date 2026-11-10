@@ -81,6 +81,26 @@ extension NotesApp {
     } catch { showError(error.localizedDescription) }
   }
 
+  func webView(
+    _ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
+    decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+  ) {
+    guard let url = action.request.url else {
+      decisionHandler(.allow)
+      return
+    }
+    if url.absoluteString == "about:blank" {
+      decisionHandler(.allow)
+      return
+    }
+    if action.navigationType == .linkActivated,
+      ["https", "http", "mailto"].contains(url.scheme?.lowercased() ?? "")
+    {
+      NSWorkspace.shared.open(url)
+    }
+    decisionHandler(.cancel)
+  }
+
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
     guard webView === preview else { return }
     previewReady = true

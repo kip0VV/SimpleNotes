@@ -3,6 +3,9 @@ import Cocoa
 struct CachedNoteBody {
   let modified: Date?
   let size: Int?
+  let changed: Date?
+  let identity: NSObject?
+  let generation: NSObject?
   let body: String
 }
 
@@ -37,15 +40,21 @@ struct NoteIndexScanner {
     return try entries.compactMap { url in
       let values = try url.resourceValues(forKeys: [
         .isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey,
+        .attributeModificationDateKey, .fileResourceIdentifierKey, .generationIdentifierKey,
       ])
       if values.isDirectory == true {
         return NoteNode(url: url, children: try nodes(in: url), isFolder: true)
       }
       visited.insert(url)
       let node = NoteNode(url: url)
-      if values.contentModificationDate != nil, values.fileSize != nil,
+      let identity = values.fileResourceIdentifier as? NSObject
+      let generation = values.generationIdentifier as? NSObject
+      if values.contentModificationDate != nil, values.fileSize != nil, identity != nil,
+        generation != nil || values.attributeModificationDate != nil,
         let cached = cache[url], cached.modified == values.contentModificationDate,
-        cached.size == values.fileSize
+        cached.size == values.fileSize, cached.identity == identity,
+        cached.generation == generation,
+        generation != nil || cached.changed == values.attributeModificationDate
       {
         node.searchBody = cached.body
       } else if let content = try? String(contentsOf: url, encoding: .utf8) {
@@ -55,7 +64,8 @@ struct NoteIndexScanner {
           ? lines.dropFirst(lines[3].isEmpty ? 4 : 3).joined(separator: "\n") : content
         cache[url] = CachedNoteBody(
           modified: values.contentModificationDate,
-          size: values.fileSize, body: node.searchBody)
+          size: values.fileSize, changed: values.attributeModificationDate, identity: identity,
+          generation: generation, body: node.searchBody)
       }
       return node
     }
@@ -67,6 +77,7 @@ func orderedNoteEntries(in folder: URL, root: URL, order: [String: [String]]) th
     at: folder,
     includingPropertiesForKeys: [
       .isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey,
+      .attributeModificationDateKey, .fileResourceIdentifierKey, .generationIdentifierKey,
     ],
     options: [.skipsHiddenFiles])
   let saved = order[String(folder.path.dropFirst(root.path.count + 1))] ?? []

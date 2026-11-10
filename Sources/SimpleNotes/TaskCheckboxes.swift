@@ -23,13 +23,25 @@ extension NotesApp {
   static func taskMarkerRange(in text: String, line: Int) -> NSRange? {
     guard line >= 0 else { return nil }
     let source = text as NSString
+    let breaks = CharacterSet(charactersIn: "\r\n")
     var offset = 0
     for _ in 0..<line {
-      guard offset < source.length else { return nil }
-      offset = NSMaxRange(source.lineRange(for: NSRange(location: offset, length: 0)))
+      let end = source.rangeOfCharacter(
+        from: breaks, range: NSRange(location: offset, length: source.length - offset))
+      guard end.location != NSNotFound else { return nil }
+      offset = NSMaxRange(end)
+      if source.character(at: end.location) == 13, offset < source.length,
+        source.character(at: offset) == 10
+      {
+        offset += 1
+      }
     }
     guard offset < source.length else { return nil }
-    let lineRange = source.lineRange(for: NSRange(location: offset, length: 0))
+    let end = source.rangeOfCharacter(
+      from: breaks, range: NSRange(location: offset, length: source.length - offset))
+    let lineRange = NSRange(
+      location: offset, length: (end.location == NSNotFound ? source.length : end.location) - offset
+    )
     let content = source.substring(with: lineRange)
     guard
       let match = taskMarker.firstMatch(
@@ -52,7 +64,7 @@ extension NotesApp {
     editor.setSelectedRange(selection)
     editor.undoManager?.setActionName("Отметить задачу")
     if !wasDirty && currentURL != nil {
-      _ = saveCurrent()
+      _ = saveCurrent(preservingExistingFile: true)
     } else {
       renderMarkdown()
       status.stringValue = "Задача изменена · сохрани заметку"

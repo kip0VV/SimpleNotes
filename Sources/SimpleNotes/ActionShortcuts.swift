@@ -216,7 +216,10 @@ extension NotesApp {
   {
     for action in noteActions where action.id != id {
       let binding = actionBinding(action)
-      if binding.0 == key && binding.1 == modifiers { return action.title }
+      let zoomAlias =
+        action.id == "zoomIn" && binding.0 == "=" && binding.1 == [.command]
+        && key == "=" && modifiers == [.command, .shift]
+      if (binding.0 == key && binding.1 == modifiers) || zoomAlias { return action.title }
     }
     func reserved(_ menu: NSMenu?) -> String? {
       for item in menu?.items ?? [] {

@@ -63,6 +63,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   )
   .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
   var indexGeneration = 0
+  var indexedRoot: URL?
   let indexQueue: OperationQueue = {
     let queue = OperationQueue()
     queue.name = "SimpleNotes.noteIndex"
@@ -633,6 +634,9 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     ] {
       editMenu.addItem(withTitle: name, action: Selector(selector), keyEquivalent: key)
     }
+    let redo = editMenu.insertItem(
+      withTitle: "Повторить", action: NSSelectorFromString("redo:"), keyEquivalent: "z", at: 1)
+    redo.keyEquivalentModifierMask = [.command, .shift]
     editItem.submenu = editMenu
     let windowItem = NSMenuItem()
     let windowMenu = NSMenu(title: "Окно")
@@ -750,7 +754,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   }
 
   @objc func saveNote() { _ = saveCurrent() }
-  @discardableResult func saveCurrent() -> Bool {
+  @discardableResult func saveCurrent(preservingExistingFile: Bool = false) -> Bool {
     let body = editor.string
     var title = titleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
     if title.isEmpty {
@@ -768,8 +772,15 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     if safeTitle.hasPrefix(".") { safeTitle = "Заметка " + safeTitle }
     let formatter = DateFormatter()
     formatter.dateFormat = "dd.MM.yyyy HH:mm"
-    let date = noteDate.isEmpty ? formatter.string(from: Date()) : noteDate
-    let content = "\(title)\n\(date)\nТема — \(topic.isEmpty ? "Без папки" : topic)\n\n\(body)"
+    let existingURL = preservingExistingFile ? currentURL : nil
+    let originalLines = loadedContent?.components(separatedBy: "\n") ?? []
+    let hasMetadata = originalLines.count >= 4 && originalLines[2].hasPrefix("Тема — ")
+    let preservePlainText = existingURL != nil && !hasMetadata
+    let date =
+      preservePlainText ? "" : (noteDate.isEmpty ? formatter.string(from: Date()) : noteDate)
+    let content =
+      preservePlainText
+      ? body : "\(title)\n\(date)\nТема — \(topic.isEmpty ? "Без папки" : topic)\n\n\(body)"
     do {
       if let oldURL = currentURL {
         guard try String(contentsOf: oldURL, encoding: .utf8) == loadedContent else {
@@ -779,15 +790,16 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
           return false
         }
       }
-      let folder = root.appendingPathComponent(topic)
+      let folder = existingURL?.deletingLastPathComponent() ?? root.appendingPathComponent(topic)
       try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
       let fileExtension = currentURL?.pathExtension ?? "md"
       var suffix = 1
       var destination: URL
       while true {
         let filename =
-          suffix == 1
-          ? "\(safeTitle).\(fileExtension)" : "\(safeTitle) (\(suffix)).\(fileExtension)"
+          existingURL?.lastPathComponent
+          ?? (suffix == 1
+            ? "\(safeTitle).\(fileExtension)" : "\(safeTitle) (\(suffix)).\(fileExtension)")
         destination = folder.appendingPathComponent(filename)
         if destination == currentURL {
           try Data(content.utf8).write(to: destination, options: .atomic)
@@ -815,7 +827,8 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       noteBodyCache.removeValue(forKey: destination)
       refreshTree()
       status.stringValue =
-        "Сохранено в «\(topic.isEmpty ? "Без папки" : topic)»" + (showDates ? " · \(date)" : "")
+        "Сохранено в «\(topic.isEmpty ? "Без папки" : topic)»"
+        + (showDates && !date.isEmpty ? " · \(date)" : "")
       if mode.selectedSegment == 1 { renderMarkdown() }
       return true
     } catch {
@@ -895,6 +908,12 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     ])
   }
   @objc func refreshTree() {
+    if indexedRoot != root {
+      indexedRoot = root
+      allNotes = []
+      noteBodyCache.removeAll()
+      applySearch()
+    }
     indexGeneration += 1
     let generation = indexGeneration
     let directory = root
@@ -922,6 +941,9 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     }
   }
   func applySearch() {
+    let selectedURLs = outline.selectedRowIndexes.compactMap {
+      (outline.item(atRow: $0) as? NoteNode)?.url
+    }
     let query = searchQuery
     var count = 0
     func filter(_ nodes: [NoteNode]) -> [NoteNode] {
@@ -975,6 +997,13 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
         }
       }
     }
+    let selection = IndexSet(
+      selectedURLs.compactMap { url in
+        guard let node = findNode(url, in: tree) else { return nil }
+        let row = outline.row(forItem: node)
+        return row >= 0 ? row : nil
+      })
+    outline.selectRowIndexes(selection, byExtendingSelection: false)
     loadingTree = false
   }
   func outlineViewItemDidExpand(_ notification: Notification) {
@@ -1015,7 +1044,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   }
   func findNode(_ url: URL, in nodes: [NoteNode]) -> NoteNode? {
     for node in nodes {
-      if node.url == url { return node }
+      if node.url.resolvingSymlinksInPath().path == url.resolvingSymlinksInPath().path { return node }
       if let found = findNode(url, in: node.children) { return found }
     }
     return nil
@@ -1134,6 +1163,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       } else {
         refreshTopics(select: selectedTopicPath)
       }
+      applyMovedSnapshot(from: source, to: target)
       refreshTree()
       if let movedNode = findNode(target, in: tree) {
         let row = outline.row(forItem: movedNode)

@@ -22,6 +22,11 @@ notes.resetZoom()
 precondition(notes.noteZoom == 1 && notes.preview == nil)
 precondition(notes.shortcutConflict(key: "q", modifiers: [.command], excluding: "bold") != nil)
 precondition(notes.shortcutConflict(key: "i", modifiers: [.command], excluding: "bold") == "Курсив")
+precondition(
+  notes.shortcutConflict(key: "=", modifiers: [.command, .shift], excluding: "bold")
+    == "Увеличить масштаб")
+precondition(
+  notes.shortcutConflict(key: "z", modifiers: [.command, .shift], excluding: "bold") == "Повторить")
 precondition(Set(notes.noteActions.map(\.id)).count == notes.noteActions.count)
 notes.defaults.set(
   ["bold": ["key": "b", "modifiers": NSEvent.ModifierFlags([.command, .shift]).rawValue]],
@@ -56,7 +61,8 @@ precondition(tree.count == 1 && tree[0].children[0].searchBody == "Первый 
 let cachedURL = scanner.cache.keys.first!
 let cached = scanner.cache[cachedURL]!
 scanner.cache[cachedURL] = CachedNoteBody(
-  modified: cached.modified, size: cached.size, body: "CACHE HIT")
+  modified: cached.modified, size: cached.size, changed: cached.changed, identity: cached.identity,
+  generation: cached.generation, body: "CACHE HIT")
 tree = try scanner.scan()
 precondition(tree[0].children[0].searchBody == "CACHE HIT", "Unchanged body should come from cache")
 try "Тест\nДата\nТема — Тема\n\nВторой текст".write(to: file, atomically: true, encoding: .utf8)
@@ -64,6 +70,15 @@ try manager.setAttributes(
   [.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: file.path)
 tree = try scanner.scan()
 precondition(tree[0].children[0].searchBody == "Второй текст")
+let preservedDate = scanner.cache.values.first!.modified!
+let replacement = "Тест\nДата\nТема — Тема\n\nТретий текст"
+precondition(replacement.utf8.count == (try! String(contentsOf: file, encoding: .utf8)).utf8.count)
+try replacement.write(to: file, atomically: true, encoding: .utf8)
+try manager.setAttributes([.modificationDate: preservedDate], ofItemAtPath: file.path)
+tree = try scanner.scan()
+precondition(
+  tree[0].children[0].searchBody == "Третий текст",
+  "Atomic replacement with preserved size and timestamp must invalidate cache")
 try manager.removeItem(at: file)
 _ = try scanner.scan()
 precondition(scanner.cache.isEmpty)
@@ -89,4 +104,67 @@ for separator in ["\n", "\r\n", "\r"] {
 }
 precondition(NotesApp.taskMarkerRange(in: "- `[ ]` код", line: 0) == nil)
 precondition(NotesApp.taskMarkerRange(in: "- [ ] задача", line: 100) == nil)
+let unusualNewline = "Строка\u{2028}продолжение\n- [ ] Задача"
+precondition(
+  NotesApp.taskMarkerRange(in: unusualNewline, line: 1) != nil,
+  "Task lines must match Markdown newline rules")
+
+// Task toggles must preserve imported Markdown bytes and the original filename.
+notes.root = fixture.resolvingSymlinksInPath()
+let plainFile = notes.root.appendingPathComponent("original-name.md")
+let plainText = "# Обычный Markdown\r\n\r\n- [ ] задача 🙂\r\n"
+try plainText.write(to: plainFile, atomically: true, encoding: .utf8)
+notes.currentURL = plainFile
+notes.loadedContent = plainText
+notes.editor.string = plainText
+notes.editor.delegate = notes
+notes.titleField.stringValue = "Другое название"
+notes.dirty = false
+notes.topics.removeAllItems()
+notes.topics.addItem(withTitle: "Без папки")
+notes.topics.lastItem?.representedObject = ""
+notes.toggleMarkdownTask(line: 2, checked: true)
+precondition(
+  try! String(contentsOf: plainFile, encoding: .utf8)
+    == plainText.replacingOccurrences(of: "[ ]", with: "[x]"))
+precondition(notes.currentURL == plainFile && !notes.dirty)
+precondition(
+  !manager.fileExists(atPath: notes.root.appendingPathComponent("Другое название.md").path))
+
+// Reordering and moving use an immediate snapshot, then verify it asynchronously.
+notes.root = notes.root.resolvingSymlinksInPath()
+let alpha = notes.root.appendingPathComponent("A", isDirectory: true)
+let beta = notes.root.appendingPathComponent("B", isDirectory: true)
+let first = alpha.appendingPathComponent("first.md")
+let nested = alpha.appendingPathComponent("nested", isDirectory: true)
+try manager.createDirectory(at: nested, withIntermediateDirectories: true)
+try manager.createDirectory(at: beta, withIntermediateDirectories: true)
+try "first body".write(to: first, atomically: true, encoding: .utf8)
+try "nested body".write(
+  to: nested.appendingPathComponent("inside.md"), atomically: true, encoding: .utf8)
+var moveScanner = NoteIndexScanner(root: notes.root, order: [:], cache: [:])
+notes.allNotes = try moveScanner.scan()
+let moved = beta.appendingPathComponent("nested", isDirectory: true)
+precondition(notes.applyMovedSnapshot(from: nested, to: moved))
+precondition(notes.findNode(nested, in: notes.allNotes) == nil)
+precondition(
+  notes.findNode(moved.appendingPathComponent("inside.md"), in: notes.allNotes)?.searchBody
+    == "nested body")
+precondition(notes.findNode(alpha, in: notes.allNotes)?.noteCount == 1)
+precondition(notes.findNode(beta, in: notes.allNotes)?.noteCount == 1)
+notes.defaults.set(["": ["B", "A"]], forKey: "treeOrder")
+precondition(notes.applyMovedSnapshot(from: beta, to: beta))
+precondition(notes.allNotes.first!.url.resolvingSymlinksInPath().path == beta.resolvingSymlinksInPath().path)
+notes.defaults.removeObject(forKey: "treeOrder")
+
+// A switched library must stop showing the previous library immediately.
+notes.root = beta
+notes.refreshTree()
+precondition(notes.allNotes.isEmpty && notes.noteBodyCache.isEmpty)
+let switchDeadline = Date().addingTimeInterval(5)
+while Date() < switchDeadline && notes.indexQueue.operationCount > 0 {
+  RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+}
+RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+precondition(notes.root == beta && notes.allNotes.isEmpty)
 print("Optimization, zoom, shortcut and cache regression checks passed")
