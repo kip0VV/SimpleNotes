@@ -19,7 +19,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   var regularConstraints: [NSLayoutConstraint] = []
   var quickConstraints: [NSLayoutConstraint] = []
   var regularHiddenViews: [NSView] = []
-  let expandButton = NSButton(title: "Обычное окно", target: nil, action: nil)
+  let expandButton = NSButton(title: "Основное окно", target: nil, action: nil)
   var root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     .appendingPathComponent("SimpleNotes", isDirectory: true)
   let defaults = UserDefaults.standard
@@ -310,7 +310,9 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       quickTopics.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, multiplier: 0.7),
       quickMore.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
       quickMore.centerYAnchor.constraint(equalTo: quickTopics.centerYAnchor),
-      quickTopics.trailingAnchor.constraint(lessThanOrEqualTo: quickMore.leadingAnchor, constant: -12),
+      expandButton.trailingAnchor.constraint(equalTo: quickMore.leadingAnchor, constant: -8),
+      expandButton.centerYAnchor.constraint(equalTo: quickTopics.centerYAnchor),
+      quickTopics.trailingAnchor.constraint(lessThanOrEqualTo: expandButton.leadingAnchor, constant: -12),
       scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
       scroll.topAnchor.constraint(equalTo: quickTopics.bottomAnchor, constant: 8),

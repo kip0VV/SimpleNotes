@@ -2,6 +2,14 @@ import Cocoa
 
 extension NotesApp {
   func configureQuickChrome(in view: NSView) {
+    expandButton.target = self
+    expandButton.action = #selector(expandQuickNote)
+    expandButton.bezelStyle = .inline
+    expandButton.controlSize = .small
+    expandButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+    expandButton.setContentHuggingPriority(.required, for: .horizontal)
+    quickTopics.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    (quickTopics.cell as? NSPopUpButtonCell)?.lineBreakMode = .byTruncatingTail
     quickTopics.target = self
     quickTopics.action = #selector(selectQuickTopic)
     quickTopics.setAccessibilityLabel("Папка быстрой записи")
@@ -33,7 +41,7 @@ extension NotesApp {
     quickStatus.textColor = .secondaryLabelColor
     quickStatus.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     quickStatus.lineBreakMode = .byTruncatingTail
-    quickChrome = [quickTopics, quickMore, quickStatus]
+    quickChrome = [quickTopics, expandButton, quickMore, quickStatus]
     for control in quickChrome {
       control.translatesAutoresizingMaskIntoConstraints = false
       control.isHidden = true
