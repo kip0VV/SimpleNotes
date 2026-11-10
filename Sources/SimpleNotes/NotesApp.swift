@@ -16,6 +16,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   let quickStatus = NSTextField(labelWithString: "Сохраняется автоматически")
   var quickChrome: [NSView] = []
   var quickSaveTimer: Timer?
+  var quickAutomaticTitle = false
   var quickTopicChanged = false
   var quickMode = false
   var regularFrame = NSRect.zero
@@ -421,6 +422,11 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       "draftTitle", "draftBody", "draftPath", "draftBaseline", "draftDate", "draftDirty",
       "recentNotes", "treeOrder", "itemColors", "collapsedFolders", "selectedTopic",
     ] { defaults.removeObject(forKey: key) }
+    quickSaveTimer?.invalidate()
+    quickSaveTimer = nil
+    quickAutomaticTitle = quickMode
+    quickTopicChanged = false
+    quickStatus.stringValue = "Сохраняется автоматически"
     currentURL = nil
     loadedContent = nil
     noteDate = ""
@@ -730,6 +736,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       } else {
         topics.selectItem(at: 0)
       }
+      syncQuickTopics()
     } catch { showError(error.localizedDescription) }
   }
 
@@ -842,7 +849,13 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   @objc func saveNote() { _ = saveCurrent() }
   @discardableResult func saveCurrent(preservingExistingFile: Bool = false) -> Bool {
     let body = editor.string
-    var title = titleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    let previousTitle = titleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    var title = previousTitle
+    let firstLine = String(body.split(whereSeparator: \.isNewline).first ?? "")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    if quickMode && quickAutomaticTitle && !firstLine.isEmpty {
+      title = firstLine
+    }
     if title.isEmpty {
       title = String(body.split(whereSeparator: \.isNewline).first ?? "").trimmingCharacters(
         in: .whitespacesAndNewlines)
@@ -858,10 +871,11 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     if safeTitle.hasPrefix(".") { safeTitle = "Заметка " + safeTitle }
     let formatter = DateFormatter()
     formatter.dateFormat = "dd.MM.yyyy HH:mm"
-    let existingURL = preservingExistingFile ? currentURL : nil
+    let automaticRetitle = quickMode && quickAutomaticTitle && title != previousTitle
+    let existingURL = preservingExistingFile && !automaticRetitle ? currentURL : nil
     let originalLines = loadedContent?.components(separatedBy: "\n") ?? []
-    let hasMetadata = originalLines.count >= 4 && originalLines[2].hasPrefix("Тема — ")
-    let preservePlainText = existingURL != nil && !hasMetadata
+    let hasMetadata = NoteMetadata.hasHeader(originalLines)
+    let preservePlainText = currentURL != nil && !hasMetadata
     let date =
       preservePlainText ? "" : (noteDate.isEmpty ? formatter.string(from: Date()) : noteDate)
     let content =
@@ -889,7 +903,10 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
           let filename = suffix == 1
             ? "\(safeTitle).\(fileExtension)" : "\(safeTitle) (\(suffix)).\(fileExtension)"
           destination = folder.appendingPathComponent(filename)
-          if destination == currentURL {
+          if let current = currentURL,
+            destination.standardizedFileURL.resolvingSymlinksInPath()
+              == current.standardizedFileURL.resolvingSymlinksInPath() {
+            destination = current
             try Data(content.utf8).write(to: destination, options: .atomic)
             break
           }
@@ -1694,7 +1711,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   }
   func contentWithTitle(_ title: String, content: String) -> String {
     var lines = content.components(separatedBy: "\n")
-    if lines.count >= 4 && lines[2].hasPrefix("Тема — ") { lines[0] = title }
+    if NoteMetadata.hasHeader(lines) { lines[0] = title }
     return lines.joined(separator: "\n")
   }
   func moveEntry(_ source: URL, to target: URL, newTitle: String? = nil) throws {
@@ -1927,7 +1944,8 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   }
   func loadNote(_ content: String, url: URL) {
     let lines = content.components(separatedBy: "\n")
-    let hasHeader = lines.count >= 4 && lines[2].hasPrefix("Тема — ")
+    quickAutomaticTitle = false
+    let hasHeader = NoteMetadata.hasHeader(lines)
     titleField.stringValue = hasHeader ? lines[0] : url.deletingPathExtension().lastPathComponent
     editor.string =
       hasHeader ? lines.dropFirst(lines[3].isEmpty ? 4 : 3).joined(separator: "\n") : content
@@ -1959,6 +1977,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   }
 
   func resetNoteForWriting() {
+    quickAutomaticTitle = false
     currentURL = nil
     loadedContent = nil
     noteDate = ""

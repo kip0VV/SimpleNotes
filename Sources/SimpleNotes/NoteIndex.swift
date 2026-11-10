@@ -60,7 +60,7 @@ struct NoteIndexScanner {
       } else if let content = try? String(contentsOf: url, encoding: .utf8) {
         let lines = content.components(separatedBy: "\n")
         node.searchBody =
-          lines.count >= 4 && lines[2].hasPrefix("Тема — ")
+          NoteMetadata.hasHeader(lines)
           ? lines.dropFirst(lines[3].isEmpty ? 4 : 3).joined(separator: "\n") : content
         cache[url] = CachedNoteBody(
           modified: values.contentModificationDate,

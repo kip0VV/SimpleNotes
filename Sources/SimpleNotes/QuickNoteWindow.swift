@@ -57,9 +57,17 @@ extension NotesApp {
 
   @objc func startNextQuickNote() { openQuickNote() }
 
+  func syncQuickTopics() {
+    quickTopics.menu = topics.menu?.copy() as? NSMenu
+    quickTopics.selectItem(at: topics.indexOfSelectedItem)
+  }
+
   @objc func selectQuickTopic() {
     guard let path = quickTopics.selectedItem?.representedObject as? String,
-      let item = topics.itemArray.first(where: { $0.representedObject as? String == path }) else { return }
+      let item = topics.itemArray.first(where: { $0.representedObject as? String == path }) else {
+      syncQuickTopics()
+      return
+    }
     topics.select(item)
     topicChanged()
     quickTopicChanged = true
@@ -70,6 +78,11 @@ extension NotesApp {
   func scheduleQuickSave() {
     guard quickMode else { return }
     quickSaveTimer?.invalidate()
+    quickSaveTimer = nil
+    guard dirty, !editor.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || currentURL != nil else {
+      quickStatus.stringValue = currentURL == nil ? "Сохраняется автоматически" : "✓ Сохранено"
+      return
+    }
     quickStatus.stringValue = "Сохранение…"
     quickSaveTimer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: false) { [weak self] _ in
       self?.flushQuickSave()
@@ -79,7 +92,11 @@ extension NotesApp {
   func flushQuickSave() {
     quickSaveTimer?.invalidate()
     quickSaveTimer = nil
-    guard quickMode, dirty else { return }
+    guard quickMode else { return }
+    guard dirty else {
+      quickStatus.stringValue = currentURL == nil ? "Сохраняется автоматически" : "✓ Сохранено"
+      return
+    }
     guard !editor.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || currentURL != nil else {
       quickStatus.stringValue = "Сохраняется автоматически"
       return
@@ -103,9 +120,9 @@ extension NotesApp {
     if quickMode { flushQuickSave() }
     guard canLeaveNote() else { return }
     resetNoteForWriting()
+    quickAutomaticTitle = true
     quickTopicChanged = false
-    quickTopics.menu = topics.menu?.copy() as? NSMenu
-    quickTopics.selectItem(at: topics.indexOfSelectedItem)
+    syncQuickTopics()
     quickStatus.stringValue = "Сохраняется автоматически"
     editor.quickPlaceholder = true
     guard !quickMode, let main = editorScroll.superview else {
@@ -140,6 +157,7 @@ extension NotesApp {
   @objc func expandQuickNote() {
     guard quickMode else { return }
     flushQuickSave()
+    quickAutomaticTitle = false
     quickMode = false
     editor.quickPlaceholder = false
     NSLayoutConstraint.deactivate(quickConstraints)

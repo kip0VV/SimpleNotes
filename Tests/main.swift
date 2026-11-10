@@ -60,7 +60,7 @@ defer { try? manager.removeItem(at: fixture) }
 let folder = fixture.appendingPathComponent("Тема")
 try manager.createDirectory(at: folder, withIntermediateDirectories: true)
 let file = folder.appendingPathComponent("Тест.md")
-try "Тест\nДата\nТема — Тема\n\nПервый текст".write(to: file, atomically: true, encoding: .utf8)
+try "Тест\n10.11.2026 12:00\nТема — Тема\n\nПервый текст".write(to: file, atomically: true, encoding: .utf8)
 let junk = fixture.appendingPathComponent("Ignored.app")
 try manager.createDirectory(at: junk, withIntermediateDirectories: true)
 try "private".write(to: junk.appendingPathComponent("Hidden.md"), atomically: true, encoding: .utf8)
@@ -74,13 +74,13 @@ scanner.cache[cachedURL] = CachedNoteBody(
   generation: cached.generation, body: "CACHE HIT")
 tree = try scanner.scan()
 precondition(tree[0].children[0].searchBody == "CACHE HIT", "Unchanged body should come from cache")
-try "Тест\nДата\nТема — Тема\n\nВторой текст".write(to: file, atomically: true, encoding: .utf8)
+try "Тест\n10.11.2026 12:00\nТема — Тема\n\nВторой текст".write(to: file, atomically: true, encoding: .utf8)
 try manager.setAttributes(
   [.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: file.path)
 tree = try scanner.scan()
 precondition(tree[0].children[0].searchBody == "Второй текст")
 let preservedDate = scanner.cache.values.first!.modified!
-let replacement = "Тест\nДата\nТема — Тема\n\nТретий текст"
+let replacement = "Тест\n10.11.2026 12:00\nТема — Тема\n\nТретий текст"
 precondition(replacement.utf8.count == (try! String(contentsOf: file, encoding: .utf8)).utf8.count)
 try replacement.write(to: file, atomically: true, encoding: .utf8)
 try manager.setAttributes([.modificationDate: preservedDate], ofItemAtPath: file.path)
@@ -191,6 +191,8 @@ try runReminderListChecks(notes: notes, fixture: fixture)
 try runManyRemindersChecks(notes: notes, fixture: fixture)
 
 try runCriticalChecks(notes: notes, fixture: fixture)
+
+try runBugFixChecks(notes: notes, fixture: fixture)
 
 let regressionReport = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("test-result.txt")
 try "PASS: all regression checks completed at \(Date())\n".write(to: regressionReport, atomically: true, encoding: .utf8)
