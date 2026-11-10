@@ -70,11 +70,19 @@ extension NotesApp {
       let theme =
         (NSApp.appearance ?? window.effectiveAppearance).bestMatch(from: [.darkAqua, .aqua])
           == .darkAqua ? "dark" : "light"
-      let contentKey = json + theme + (currentURL?.path ?? "draft")
+      let styleValues: [String: Any] = [
+        "font": editorStyle?.fontName ?? "-apple-system",
+        "size": editorStyle?.fontSize ?? 16,
+        "background": editorStyle?.background ?? "",
+        "foreground": editorStyle?.foreground ?? "",
+      ]
+      let styleData = try JSONSerialization.data(withJSONObject: styleValues)
+      let styleJSON = String(decoding: styleData, as: UTF8.self).replacingOccurrences(of: "<", with: "\\u003c")
+      let contentKey = styleJSON + json + theme + (currentURL?.path ?? "draft")
       guard contentKey != lastPreviewPayload else { return }
       lastPreviewPayload = contentKey
       if !updatingTask || previewRevision.isEmpty { previewRevision = UUID().uuidString }
-      let payload = "window.renderNote(\(json), '\(theme)', '\(previewRevision)')"
+      let payload = "var s=\(styleJSON);document.body.style.fontFamily=s.font;document.body.style.fontSize=s.size+'px';document.body.style.backgroundColor=s.background;document.body.style.color=s.foreground;window.renderNote(\(json), '\(theme)', '\(previewRevision)')"
       preview?.evaluateJavaScript(payload) { [weak self] _, error in
         if error != nil && self?.lastPreviewPayload == contentKey { self?.lastPreviewPayload = nil }
       }

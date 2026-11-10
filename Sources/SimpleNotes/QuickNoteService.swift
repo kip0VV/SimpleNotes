@@ -35,8 +35,7 @@ extension NotesApp {
     error: AutoreleasingUnsafeMutablePointer<NSString?>
   ) {
     DispatchQueue.main.async { [weak self] in
-      self?.showWindow()
-      self?.newNote()
+      self?.openQuickNote()
     }
   }
 

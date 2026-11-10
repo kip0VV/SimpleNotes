@@ -86,6 +86,12 @@ final class NotesSettingsController: NSWindowController {
     theme.target = self
     theme.action = #selector(changeTheme)
     row(NSTextField(labelWithString: "Тема приложения"), theme)
+    row(button("Шрифт…", #selector(chooseFont)), button("Загрузить стиль…", #selector(importStyle)),
+      button("Сбросить стиль", #selector(resetStyle)))
+    let styleHint = NSTextField(wrappingLabelWithString: "Шрифт и стиль применяются ко всему тексту заметок. Свой стиль — файл JSON; формат описан в README.")
+    styleHint.textColor = .secondaryLabelColor
+    stack.addArrangedSubview(styleHint)
+    styleHint.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
     stack.addArrangedSubview(dates)
     divider()
     heading("Боковое меню")
@@ -174,6 +180,9 @@ final class NotesSettingsController: NSWindowController {
     }
   }
 
+  @objc func chooseFont() { app.chooseEditorFont() }
+  @objc func importStyle() { app.importEditorStyle() }
+  @objc func resetStyle() { app.resetEditorStyle() }
   @objc func changeTheme() {
     let item = NSMenuItem()
     item.representedObject = ["system", "light", "dark"][theme.indexOfSelectedItem]

@@ -138,7 +138,7 @@ func runFeatureChecks(notes: NotesApp, fixture: URL) throws {
     expect(notes.dirty, "Formatting marks the note dirty")
     expect(notes.editor.string == expected, "Formatting tag \(tag) with \(source.debugDescription)")
   }
-  expect(notes.makeFormattingBar().arrangedSubviews.count == 4, "Four labeled formatting groups")
+  expect(notes.makeFormattingBar().arrangedSubviews.count == 6, "Compact formatting icons and overflow menu")
   for invalid in ["", ".hidden", "../bad", "a/b", "a:b", "a\nb", "a.app", String(repeating: "я", count: 101)] {
     expect(!notes.validEntryName(invalid), "Reject invalid name \(invalid.debugDescription)")
   }
@@ -226,10 +226,10 @@ func runFeatureChecks(notes: NotesApp, fixture: URL) throws {
          "Delete cleans descendant order")
 
   // Every published action has a menu entry and settings row, and modifier encodings agree.
-  expect(notes.noteActions.count == 35 && notes.shortcutMenuItems.count == 35, "All 35 actions registered")
+  expect(notes.noteActions.count == 36 && notes.shortcutMenuItems.count == 36, "All 36 actions registered")
   let settings = NotesSettingsController(app: notes)
   settings.refresh()
-  expect(settings.actionLabels.count == 35, "All 35 actions configurable")
+  expect(settings.actionLabels.count == 36, "All 36 actions configurable")
   settings.theme.selectItem(at: 2)
   settings.changeTheme()
   expect(notes.defaults.string(forKey: "appearance") == "dark" && NSApp.appearance?.name == .darkAqua,

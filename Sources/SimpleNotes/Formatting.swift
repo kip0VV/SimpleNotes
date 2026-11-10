@@ -2,29 +2,34 @@ import Cocoa
 
 extension NotesApp {
   func makeFormattingBar() -> NSStackView {
-    let groups: [(String, [(String, Int)])] = [
-      ("Текст", [("Жирный", 1), ("Курсив", 2)]),
-      (
-        "Заголовок",
-        [("Крупный заголовок", 101), ("Средний заголовок", 102), ("Малый заголовок", 103)]
-      ),
-      ("Список", [("Маркированный список", 3), ("Нумерованный список", 4), ("Список задач", 5)]),
-      ("Вставить", [("Цитата", 6), ("Код", 7), ("Ссылка…", 8)]),
+    let items: [(String, String, Int)] = [
+      ("bold", "Жирный · ⌘B", 1), ("italic", "Курсив · ⌘I", 2),
+      ("list.bullet", "Маркированный список", 3), ("checklist", "Задачи", 5),
+      ("link", "Ссылка · ⌘K", 8),
     ]
-    let controls: [NSView] = groups.map { title, items in
-      let popup = NSPopUpButton(frame: .zero, pullsDown: true)
-      popup.addItem(withTitle: title)
-      for (name, tag) in items {
-        popup.addItem(withTitle: name)
-        popup.lastItem?.tag = tag
-      }
-      popup.target = self
-      popup.action = #selector(formatText(_:))
-      popup.setAccessibilityLabel(title)
-      return popup
+    var controls: [NSView] = items.map { symbol, title, tag in
+      let button = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: title)!,
+        target: self, action: #selector(formatText(_:)))
+      button.bezelStyle = .texturedRounded
+      button.tag = tag
+      button.toolTip = title
+      button.setAccessibilityLabel(title)
+      button.widthAnchor.constraint(equalToConstant: 28).isActive = true
+      return button
     }
+    let more = NSPopUpButton(frame: .zero, pullsDown: true)
+    more.addItem(withTitle: "Ещё")
+    for (title, tag) in [("Заголовок 1", 101), ("Заголовок 2", 102), ("Заголовок 3", 103),
+                         ("Нумерованный список", 4), ("Цитата", 6), ("Код", 7)] {
+      more.addItem(withTitle: title)
+      more.lastItem?.tag = tag
+    }
+    more.target = self
+    more.action = #selector(formatText(_:))
+    more.setAccessibilityLabel("Дополнительное форматирование")
+    controls.append(more)
     let bar = NSStackView(views: controls)
-    bar.spacing = 8
+    bar.spacing = 4
     bar.alignment = .centerY
     bar.setAccessibilityLabel("Форматирование заметки")
     return bar

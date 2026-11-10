@@ -8,6 +8,12 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   NSTextFieldDelegate, NSSearchFieldDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate,
   NSMenuDelegate, WKNavigationDelegate
 {
+  var quickMode = false
+  var regularFrame = NSRect.zero
+  var regularConstraints: [NSLayoutConstraint] = []
+  var quickConstraints: [NSLayoutConstraint] = []
+  var regularHiddenViews: [NSView] = []
+  let expandButton = NSButton(title: "Обычное окно", target: nil, action: nil)
   var root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     .appendingPathComponent("SimpleNotes", isDirectory: true)
   let defaults = UserDefaults.standard
@@ -284,6 +290,29 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       save.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
       save.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
     ])
+    regularConstraints = view.constraints
+    expandButton.target = self
+    expandButton.action = #selector(expandQuickNote)
+    expandButton.translatesAutoresizingMaskIntoConstraints = false
+    expandButton.isHidden = true
+    view.addSubview(expandButton)
+    quickConstraints = [
+      titleField.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+      titleField.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+      titleField.topAnchor.constraint(equalTo: view.topAnchor, constant: 16),
+      titleField.heightAnchor.constraint(equalToConstant: 30),
+      scroll.leadingAnchor.constraint(equalTo: titleField.leadingAnchor),
+      scroll.trailingAnchor.constraint(equalTo: titleField.trailingAnchor),
+      scroll.topAnchor.constraint(equalTo: titleField.bottomAnchor, constant: 12),
+      scroll.bottomAnchor.constraint(equalTo: save.topAnchor, constant: -12),
+      save.trailingAnchor.constraint(equalTo: titleField.trailingAnchor),
+      save.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -16),
+      expandButton.leadingAnchor.constraint(equalTo: titleField.leadingAnchor),
+      expandButton.centerYAnchor.constraint(equalTo: save.centerYAnchor),
+      expandButton.trailingAnchor.constraint(lessThanOrEqualTo: save.leadingAnchor, constant: -12),
+    ]
+    regularHiddenViews = [heading, menuToggle, row, mode, newNoteButton, previewContainer,
+      status, recentButton, headerHandle, topicHandle, formatting, zoomControls]
     headerLabels = [mode, menuToggle, newNoteButton]
     let headerViews: [NSView] = [heading, menuToggle, row, titleField, mode, newNoteButton]
     scaledConstraints = view.constraints.filter { constraint in
@@ -527,7 +556,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     return ended ? alreadyHandled : swipe.recognized
   }
   func handleHover(_ point: NSPoint, in outer: NSView) {
-    guard !menuTracking, Date() >= suppressHoverUntil else { return }
+    guard !quickMode, !menuTracking, Date() >= suppressHoverUntil else { return }
     if menuVisible && Date() < manualRevealUntil { return }
     let inRevealZone = point.x >= outer.bounds.width - 24
     let outsideHoldZone = point.x < outer.bounds.width - sidebarWidth.constant - 80
@@ -555,6 +584,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     }
   }
   func setMenuVisible(_ visible: Bool, animated: Bool = false) {
+    guard !quickMode else { return }
     hoverTimer?.invalidate()
     hoverTimer = nil
     pendingVisibility = nil
@@ -612,10 +642,10 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
     default: NSApp.appearance = nil
     }
-    if mode.selectedSegment == 1 { renderMarkdown() }
+    applyEditorStyle()
   }
   func windowDidResize(_ notification: Notification) {
-    guard sidebarWidth != nil, headerHeight != nil else { return }
+    guard !quickMode, sidebarWidth != nil, headerHeight != nil else { return }
     setMenuVisible(menuVisible)
     applyHeaderScale(CGFloat(defaults.object(forKey: "headerScale") as? Double ?? 1))
   }
@@ -720,6 +750,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   }
   func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool
   {
+    expandQuickNote()
     refreshTopics(select: selectedTopicPath)
     refreshTree()
     showWindow()
@@ -1875,6 +1906,10 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   }
   @objc func newNote() {
     guard canLeaveNote() else { return }
+    resetNoteForWriting()
+  }
+
+  func resetNoteForWriting() {
     currentURL = nil
     loadedContent = nil
     noteDate = ""

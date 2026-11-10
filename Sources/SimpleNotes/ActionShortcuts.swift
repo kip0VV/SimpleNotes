@@ -14,6 +14,7 @@ extension NotesApp {
   var noteActions: [NoteAction] {
     [
       NoteAction(id: "new", title: "Новая заметка", group: "Заметки", key: "n"),
+      NoteAction(id: "normalWindow", title: "Открыть обычное окно", group: "Заметки", key: "\r", modifiers: [.command, .shift]),
       NoteAction(id: "save", title: "Сохранить заметку", group: "Заметки", key: "\r"),
       NoteAction(
         id: "topic", title: "Новая тема", group: "Заметки", key: "n", modifiers: [.command, .shift]),
@@ -132,6 +133,10 @@ extension NotesApp {
   }
 
   func updateActionShortcuts() {
+    if let action = noteActions.first(where: { $0.id == "normalWindow" }) {
+      expandButton.title = "Обычное окно" + (actionBinding(action).0.isEmpty ? "" : "  " + bindingLabel(action))
+      expandButton.toolTip = "Продолжить эту же запись в полном окне"
+    }
     if let action = noteActions.first(where: { $0.id == "save" }) {
       let label = actionBinding(action).0.isEmpty ? "" : "  " + bindingLabel(action)
       saveNoteButton?.title = "Сохранить заметку" + label
@@ -252,7 +257,11 @@ extension NotesApp {
       formatText(control)
       return
     }
+    if quickMode && !["new", "save", "normalWindow", "zoomIn", "zoomOut", "zoomReset"].contains(id) {
+      expandQuickNote()
+    }
     switch id {
+    case "normalWindow": expandQuickNote()
     case "new": newNote()
     case "save": saveNote()
     case "topic": addTopic()

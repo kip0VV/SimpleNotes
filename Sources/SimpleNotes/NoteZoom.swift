@@ -25,7 +25,7 @@ extension NotesApp {
   }
 
   func applyNoteZoom() {
-    editor.font = .systemFont(ofSize: 16 * noteZoom)
+    applyEditorStyle()
     preview?.pageZoom = noteZoom
     zoomLabel.title = "\(Int((noteZoom * 100).rounded()))%"
   }

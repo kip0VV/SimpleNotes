@@ -167,8 +167,7 @@ extension NotesApp: UNUserNotificationCenterDelegate {
         guard let context = context else { return OSStatus(eventNotHandledErr) }
         let owner = Unmanaged<NotesApp>.fromOpaque(context).takeUnretainedValue()
         DispatchQueue.main.async {
-          owner.showWindow()
-          owner.newNote()
+          owner.openQuickNote()
         }
         return noErr
       }, 1, &type, Unmanaged.passUnretained(self).toOpaque(), &quickHotKeyHandler)
