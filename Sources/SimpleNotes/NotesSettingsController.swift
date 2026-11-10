@@ -9,6 +9,7 @@ final class NotesSettingsController: NSWindowController {
   let reverse = NSButton(checkboxWithTitle: "Обратное направление свайпа", target: nil, action: nil)
   let notifications = NSButton(
     checkboxWithTitle: "Уведомления о заметках", target: nil, action: nil)
+  let hideReminderPanel = NSButton(checkboxWithTitle: "Скрыть меню напоминаний", target: nil, action: nil)
   let shortcut = NSTextField(labelWithString: "")
   var actionLabels: [String: NSTextField] = [:]
   let folder = NSTextField(wrappingLabelWithString: "")
@@ -103,6 +104,11 @@ final class NotesSettingsController: NSWindowController {
     divider()
     heading("Напоминания")
     stack.addArrangedSubview(notifications)
+    stack.addArrangedSubview(hideReminderPanel)
+    let remindersHint = NSTextField(wrappingLabelWithString: "Потяни верхнюю границу блока вверх, чтобы видеть больше записей. Уменьшение до минимума скрывает блок.")
+    remindersHint.textColor = .secondaryLabelColor
+    stack.addArrangedSubview(remindersHint)
+    remindersHint.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
     divider()
     heading("Папка заметок")
     folder.isSelectable = true
@@ -114,7 +120,7 @@ final class NotesSettingsController: NSWindowController {
       button("Выбрать папку…", #selector(changeFolder)),
       button("Открыть в Finder", #selector(openFolder)),
       button("Папка выбранной темы", #selector(openTopic)))
-    for control in [dates, hide, reverse, notifications] {
+    for control in [dates, hide, reverse, notifications, hideReminderPanel] {
       control.target = self
       control.action = #selector(toggle(_:))
     }
@@ -172,6 +178,7 @@ final class NotesSettingsController: NSWindowController {
     hide.state = app.autoHide.state
     reverse.state = app.defaults.bool(forKey: "reverseSidebarSwipe") ? .on : .off
     notifications.state = app.notificationsEnabled ? .on : .off
+    hideReminderPanel.state = app.reminderSidebarHidden ? .on : .off
     shortcut.stringValue =
       (app.defaults.string(forKey: "quickNoteLabel") ?? "Не назначено")
     folder.stringValue = app.root.path
@@ -190,6 +197,7 @@ final class NotesSettingsController: NSWindowController {
   }
   @objc func toggle(_ sender: NSButton) {
     switch sender {
+    case hideReminderPanel: app.toggleReminderSidebar()
     case dates: app.toggleDate()
     case hide: app.toggleAutoHide()
     case reverse: app.defaults.set(sender.state == .on, forKey: "reverseSidebarSwipe")

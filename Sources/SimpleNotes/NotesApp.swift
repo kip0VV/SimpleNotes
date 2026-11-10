@@ -59,6 +59,11 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   let reminderHeading = NSTextField(labelWithString: "Напоминания")
   let allRemindersButton = NSButton(title: "Все…", target: nil, action: nil)
   var remindersController: RemindersWindowController?
+  let reminderResizeHandle = ResizeHandle()
+  var reminderPanel: NSView?
+  var reminderPanelTop: NSLayoutConstraint?
+  var reminderPanelCollapsedHeight: NSLayoutConstraint?
+  var sidebarReminders: [ActiveReminder] = []
   var reminderListHeight: NSLayoutConstraint?
   var reminderListTimer: Timer?
   let newNoteButton = NSButton(title: "+ Новая заметка", target: nil, action: nil)
@@ -676,6 +681,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     guard !quickMode, sidebarWidth != nil, headerHeight != nil else { return }
     setMenuVisible(menuVisible)
     applyHeaderScale(CGFloat(defaults.object(forKey: "headerScale") as? Double ?? 1))
+    renderSidebarReminders()
   }
 
   func buildMenu() {
