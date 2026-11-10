@@ -116,8 +116,8 @@ func runLayoutChecks(notes: NotesApp) {
   notes.editor.setSelectedRange(NSRange(location: 3, length: 4))
   notes.dirty = true
   notes.expandQuickNote()
-  precondition(!notes.quickMode && notes.editor.string == "Быстрая мысль 🙂" && notes.dirty,
-    "Expansion preserves unsaved text")
+  precondition(!notes.quickMode && notes.editor.string == "Быстрая мысль 🙂" && !notes.dirty,
+    "Expansion saves and preserves quick text")
   precondition(notes.editor.selectedRange() == NSRange(location: 3, length: 4)
     && notes.window.frame == regularFrame, "Expansion restores frame and selection")
   precondition(EditorStyle(fontName: "Menlo-Regular", fontSize: 16,

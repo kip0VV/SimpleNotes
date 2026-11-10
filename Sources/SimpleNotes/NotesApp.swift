@@ -8,6 +8,12 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   NSTextFieldDelegate, NSSearchFieldDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate,
   NSMenuDelegate, WKNavigationDelegate
 {
+  let quickTopics = NSPopUpButton()
+  let quickMore = NSPopUpButton(frame: .zero, pullsDown: true)
+  let quickStatus = NSTextField(labelWithString: "Сохраняется автоматически")
+  var quickChrome: [NSView] = []
+  var quickSaveTimer: Timer?
+  var quickTopicChanged = false
   var quickMode = false
   var regularFrame = NSRect.zero
   var regularConstraints: [NSLayoutConstraint] = []
@@ -291,28 +297,24 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       save.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
     ])
     regularConstraints = view.constraints
-    expandButton.target = self
-    expandButton.action = #selector(expandQuickNote)
-    expandButton.translatesAutoresizingMaskIntoConstraints = false
-    expandButton.isHidden = true
-    view.addSubview(expandButton)
+    configureQuickChrome(in: view)
     quickConstraints = [
-      titleField.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-      titleField.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-      titleField.topAnchor.constraint(equalTo: view.topAnchor, constant: 16),
-      titleField.heightAnchor.constraint(equalToConstant: 30),
-      scroll.leadingAnchor.constraint(equalTo: titleField.leadingAnchor),
-      scroll.trailingAnchor.constraint(equalTo: titleField.trailingAnchor),
-      scroll.topAnchor.constraint(equalTo: titleField.bottomAnchor, constant: 12),
-      scroll.bottomAnchor.constraint(equalTo: save.topAnchor, constant: -12),
-      save.trailingAnchor.constraint(equalTo: titleField.trailingAnchor),
-      save.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -16),
-      expandButton.leadingAnchor.constraint(equalTo: titleField.leadingAnchor),
-      expandButton.centerYAnchor.constraint(equalTo: save.centerYAnchor),
-      expandButton.trailingAnchor.constraint(lessThanOrEqualTo: save.leadingAnchor, constant: -12),
+      quickTopics.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+      quickTopics.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
+      quickTopics.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, multiplier: 0.7),
+      quickMore.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+      quickMore.centerYAnchor.constraint(equalTo: quickTopics.centerYAnchor),
+      quickTopics.trailingAnchor.constraint(lessThanOrEqualTo: quickMore.leadingAnchor, constant: -12),
+      scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      scroll.topAnchor.constraint(equalTo: quickTopics.bottomAnchor, constant: 8),
+      scroll.bottomAnchor.constraint(equalTo: quickStatus.topAnchor, constant: -12),
+      quickStatus.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -12),
+      quickStatus.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+      quickStatus.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 16),
     ]
-    regularHiddenViews = [heading, menuToggle, row, mode, newNoteButton, previewContainer,
-      status, recentButton, headerHandle, topicHandle, formatting, zoomControls]
+    regularHiddenViews = [heading, menuToggle, row, titleField, mode, newNoteButton, previewContainer,
+      status, recentButton, save, headerHandle, topicHandle, formatting, zoomControls]
     headerLabels = [mode, menuToggle, newNoteButton]
     let headerViews: [NSView] = [heading, menuToggle, row, titleField, mode, newNoteButton]
     scaledConstraints = view.constraints.filter { constraint in
@@ -727,6 +729,8 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   func textDidChange(_ notification: Notification) {
     dirty = true
     persistDraft()
+    editor.needsDisplay = true
+    scheduleQuickSave()
   }
   func controlTextDidChange(_ notification: Notification) {
     if notification.object as? NSSearchField === searchField {
@@ -740,10 +744,14 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     persistDraft()
   }
   func windowShouldClose(_ sender: NSWindow) -> Bool {
+    if quickMode { flushQuickSave() }
     persistDraft()
     return true
   }
-  func applicationWillTerminate(_ notification: Notification) { persistDraft() }
+  func applicationWillTerminate(_ notification: Notification) {
+    if quickMode { flushQuickSave() }
+    persistDraft()
+  }
   func showWindow() {
     window.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
@@ -864,6 +872,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       noteDate = date
       titleField.stringValue = title
       dirty = false
+      if quickMode { quickStatus.stringValue = "✓ Сохранено" }
       persistDraft()
       noteBodyCache.removeValue(forKey: destination)
       refreshTree()

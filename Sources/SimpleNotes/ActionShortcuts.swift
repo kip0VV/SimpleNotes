@@ -133,8 +133,8 @@ extension NotesApp {
   }
 
   func updateActionShortcuts() {
-    if let action = noteActions.first(where: { $0.id == "normalWindow" }) {
-      expandButton.title = "Обычное окно" + (actionBinding(action).0.isEmpty ? "" : "  " + bindingLabel(action))
+    if quickMore.numberOfItems > 1, let action = noteActions.first(where: { $0.id == "normalWindow" }) {
+      quickMore.item(at: 1)?.title = "Открыть обычное окно" + (actionBinding(action).0.isEmpty ? "" : "  " + bindingLabel(action))
       expandButton.toolTip = "Продолжить эту же запись в полном окне"
     }
     if let action = noteActions.first(where: { $0.id == "save" }) {
@@ -262,7 +262,8 @@ extension NotesApp {
     }
     switch id {
     case "normalWindow": expandQuickNote()
-    case "new": newNote()
+    case "new":
+      if quickMode { openQuickNote() } else { newNote() }
     case "save": saveNote()
     case "topic": addTopic()
     case "search":

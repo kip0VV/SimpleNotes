@@ -110,6 +110,15 @@ final class SnapOutline: NSOutlineView {
 
 // Text views receive touch events directly, including while editing or selecting text.
 final class NotesTextView: NSTextView {
+  var quickPlaceholder = false { didSet { needsDisplay = true } }
+  override func draw(_ dirtyRect: NSRect) {
+    super.draw(dirtyRect)
+    if quickPlaceholder && string.isEmpty {
+      ("Запиши мысль…" as NSString).draw(at: NSPoint(x: textContainerInset.width + 5,
+        y: textContainerInset.height), withAttributes: [
+          .font: font ?? NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.placeholderTextColor])
+    }
+  }
   var gestureHandler: ((NSEvent) -> Bool)?
   @objc func undo(_ sender: Any?) {
     guard undoManager?.canUndo == true else { return }
