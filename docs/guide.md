@@ -127,7 +127,7 @@ ThirdPartyLicenses/              Лицензии зависимостей
 
 ### Сторонние компоненты
 
-Markdown-рендеринг использует **markdown-it 14.1.0**. Его MIT-лицензия сохранена в [ThirdPartyLicenses/markdown-it.txt](ThirdPartyLicenses/markdown-it.txt).
+Markdown-рендеринг использует **markdown-it 14.1.0**. Его MIT-лицензия сохранена в [ThirdPartyLicenses/markdown-it.txt](../ThirdPartyLicenses/markdown-it.txt).
 
 ## Быстрая запись и стиль редактора
 
