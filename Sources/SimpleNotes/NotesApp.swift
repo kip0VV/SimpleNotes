@@ -41,6 +41,8 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   let reminderList = ReminderListStack()
   let reminderScroll = NSScrollView()
   let reminderHeading = NSTextField(labelWithString: "Напоминания")
+  let allRemindersButton = NSButton(title: "Все…", target: nil, action: nil)
+  var remindersController: RemindersWindowController?
   var reminderListHeight: NSLayoutConstraint?
   var reminderListTimer: Timer?
   let newNoteButton = NSButton(title: "+ Новая заметка", target: nil, action: nil)

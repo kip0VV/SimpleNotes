@@ -39,7 +39,15 @@ extension NotesApp {
     reminderScroll.drawsBackground = false
     reminderScroll.hasVerticalScroller = true
     reminderScroll.documentView = reminderList
-    for view in [separator, reminderHeading, reminderScroll] {
+    allRemindersButton.target = self
+    allRemindersButton.action = #selector(showAllReminders)
+    allRemindersButton.bezelStyle = .inline
+    allRemindersButton.setAccessibilityLabel("Открыть все напоминания")
+    allRemindersButton.toolTip = "Поиск, фильтры и управление всеми напоминаниями"
+    let heading = NSStackView(views: [reminderHeading, NSView(), allRemindersButton])
+    heading.distribution = .fill
+    heading.spacing = 6
+    for view in [separator, heading, reminderScroll] {
       panel.addArrangedSubview(view)
       view.widthAnchor.constraint(equalTo: panel.widthAnchor).isActive = true
     }
@@ -58,16 +66,17 @@ extension NotesApp {
   }
 
   func refreshReminderList() {
+    let reminders = activeReminders()
+    if remindersController?.window?.isVisible == true { remindersController?.refresh(reminders) }
     guard reminderListHeight != nil else { return }
     reminderList.arrangedSubviews.forEach {
       reminderList.removeArrangedSubview($0)
       $0.removeFromSuperview()
     }
-    let reminders = activeReminders()
     reminderHeading.stringValue = "Напоминания · \(reminders.count)"
     let formatter = DateFormatter()
     formatter.dateFormat = "dd.MM.yyyy · HH:mm"
-    for reminder in reminders {
+    for reminder in reminders.prefix(3) {
       let url = root.appendingPathComponent(reminder.path)
       let name = url.deletingPathExtension().lastPathComponent
       let button = NSButton(title: "", target: self, action: #selector(openListedReminder(_:)))
@@ -119,6 +128,13 @@ extension NotesApp {
       reminderList.addArrangedSubview(empty)
     }
     reminderListHeight?.constant = reminders.isEmpty ? 22 : CGFloat(min(reminders.count, 3) * 48)
+  }
+
+  @objc func showAllReminders() {
+    if remindersController == nil { remindersController = RemindersWindowController(app: self) }
+    remindersController?.refresh(activeReminders())
+    remindersController?.showWindow(nil)
+    remindersController?.window?.makeKeyAndOrderFront(nil)
   }
 
   @objc func openListedReminder(_ sender: NSButton) {

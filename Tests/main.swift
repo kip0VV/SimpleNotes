@@ -181,3 +181,5 @@ runLayoutChecks(notes: notes)
 runReminderChecks()
 
 try runReminderListChecks(notes: notes, fixture: fixture)
+
+try runManyRemindersChecks(notes: notes, fixture: fixture)
