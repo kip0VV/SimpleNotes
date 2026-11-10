@@ -25,12 +25,14 @@ final class NotesSettingsController: NSWindowController {
     window.center()
     let tabs = NSTabView()
     tabs.translatesAutoresizingMaskIntoConstraints = false
-    window.contentView!.addSubview(tabs)
+    let contentView = NSView()
+    window.contentView = contentView
+    contentView.addSubview(tabs)
     NSLayoutConstraint.activate([
-      tabs.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 16),
-      tabs.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor, constant: -16),
-      tabs.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 16),
-      tabs.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor, constant: -16),
+      tabs.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+      tabs.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+      tabs.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+      tabs.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
     ])
     func tab(_ title: String) -> NSStackView {
       let item = NSTabViewItem(identifier: title)

@@ -1171,8 +1171,9 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       remapColors(from: source, to: target)
       if let opened = currentURL, movingCurrentNote || containsCurrentNote {
         let suffix = String(opened.path.dropFirst(source.path.count))
-        currentURL = URL(fileURLWithPath: target.path + suffix)
-        let topic = relativePath(currentURL!.deletingLastPathComponent())
+        let movedURL = URL(fileURLWithPath: target.path + suffix)
+        currentURL = movedURL
+        let topic = relativePath(movedURL.deletingLastPathComponent())
         refreshTopics(select: topic)
         persistDraft()
       } else {
