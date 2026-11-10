@@ -38,6 +38,11 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   var touchOrigin: NSPoint?
   var touchSwipeRecognized = false
   var settingsController: NotesSettingsController?
+  let reminderList = ReminderListStack()
+  let reminderScroll = NSScrollView()
+  let reminderHeading = NSTextField(labelWithString: "Напоминания")
+  var reminderListHeight: NSLayoutConstraint?
+  var reminderListTimer: Timer?
   let newNoteButton = NSButton(title: "+ Новая заметка", target: nil, action: nil)
   var suppressHoverUntil = Date.distantPast
   let settingsButton = NSButton(title: "⋯", target: nil, action: nil)
@@ -842,6 +847,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     label.font = .systemFont(ofSize: 16, weight: .semibold)
     let newButton = NSButton(title: "+ Новая заметка", target: self, action: #selector(newNote))
     let refresh = NSButton(title: "Обновить список", target: self, action: #selector(refreshTree))
+    let reminders = makeReminderList()
     settingsButton.target = self
     settingsButton.action = #selector(showSettings)
     settingsButton.font = .systemFont(ofSize: 22)
@@ -877,7 +883,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     outline.toolTip =
       "Потяни между строками для перестановки. Option + перетаскивание — перенос в папку. Правая кнопка — цвет."
     scroll.documentView = outline
-    for item in [label, newButton, searchField, searchStatus, scroll, refresh, settingsButton] {
+    for item in [label, newButton, searchField, searchStatus, scroll, reminders, refresh, settingsButton] {
       item.translatesAutoresizingMaskIntoConstraints = false
       sidebar.addSubview(item)
     }
@@ -897,7 +903,10 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       scroll.topAnchor.constraint(equalTo: searchStatus.bottomAnchor, constant: 6),
       scroll.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor),
       scroll.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor),
-      scroll.bottomAnchor.constraint(equalTo: refresh.topAnchor, constant: -8),
+      scroll.bottomAnchor.constraint(equalTo: reminders.topAnchor, constant: -10),
+      reminders.leadingAnchor.constraint(equalTo: label.leadingAnchor),
+      reminders.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -14),
+      reminders.bottomAnchor.constraint(equalTo: refresh.topAnchor, constant: -10),
       settingsButton.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -14),
       settingsButton.centerYAnchor.constraint(equalTo: refresh.centerYAnchor),
       settingsButton.widthAnchor.constraint(equalToConstant: 36),
@@ -908,6 +917,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     ])
   }
   @objc func refreshTree() {
+    refreshReminderList()
     if indexedRoot != root {
       indexedRoot = root
       allNotes = []

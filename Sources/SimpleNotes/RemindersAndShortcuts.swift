@@ -182,6 +182,7 @@ extension NotesApp: UNUserNotificationCenterDelegate {
       DispatchQueue.main.async {
         guard let self = self else { return }
         self.defaults.set(granted, forKey: "notificationsEnabled")
+        self.refreshReminderList()
         if !granted {
           self.showError(
             error?.localizedDescription
@@ -195,6 +196,7 @@ extension NotesApp: UNUserNotificationCenterDelegate {
   @objc func toggleNotifications() {
     if notificationsEnabled {
       defaults.set(false, forKey: "notificationsEnabled")
+      refreshReminderList()
       noteNotifications.removeAllPendingNotificationRequests()
       noteNotifications.removeAllDeliveredNotifications()
     } else {
@@ -209,8 +211,11 @@ extension NotesApp: UNUserNotificationCenterDelegate {
     alert.informativeText = url.deletingPathExtension().lastPathComponent
     let savedTime = reminderRecords[relativePath(url)]?["time"] as? Double
     let previous = savedTime.map { Date(timeIntervalSince1970: $0) }
-    let initial = previous.flatMap { $0 > Date() ? $0 : nil } ?? Date().addingTimeInterval(3600)
-    let input = ReminderDateInput(date: initial)
+    let repeating = ReminderRepeat(
+      rawValue: reminderRecords[relativePath(url)]?["repeat"] as? String ?? "") ?? .none
+    let initial = previous.flatMap { repeating != .none || $0 > Date() ? $0 : nil }
+      ?? Date().addingTimeInterval(3600)
+    let input = ReminderDateInput(date: initial, repeating: repeating)
     alert.accessoryView = input
     alert.addButton(withTitle: "Напомнить")
     alert.addButton(withTitle: "Отмена")
@@ -219,7 +224,9 @@ extension NotesApp: UNUserNotificationCenterDelegate {
     while true {
       guard alert.runModal() == .alertFirstButtonReturn else { return }
       guard alert.window.makeFirstResponder(nil), let selected = input.selectedDate() else {
-        showError("Введи время в формате ЧЧ:ММ, например 18:30.")
+        showError(input.selectedRepeat == .hourly
+          ? "Введи минуту каждого часа двумя цифрами от 00 до 59."
+          : "Введи время в формате ЧЧ:ММ, например 18:30.")
         continue
       }
       guard selected > Date() else {
@@ -229,7 +236,7 @@ extension NotesApp: UNUserNotificationCenterDelegate {
       date = selected
       break
     }
-    let schedule = { [weak self] in self?.saveReminder(for: url, at: date) }
+    let schedule = { [weak self] in self?.saveReminder(for: url, at: date, repeating: input.selectedRepeat) }
     if notificationsEnabled {
       schedule()
     } else {
@@ -237,19 +244,22 @@ extension NotesApp: UNUserNotificationCenterDelegate {
     }
   }
 
-  func saveReminder(for url: URL, at date: Date) {
+  func saveReminder(for url: URL, at date: Date, repeating: ReminderRepeat = .none) {
     let path = relativePath(url)
     var records = reminderRecords
     let previous = records[path]
     let identifier = previous?["id"] as? String ?? UUID().uuidString
-    let record: [String: Any] = ["id": identifier, "time": date.timeIntervalSince1970]
+    let record: [String: Any] = [
+      "id": identifier, "time": date.timeIntervalSince1970, "repeat": repeating.rawValue,
+    ]
     let library = root
     records[path] = record
     defaults.set(records, forKey: "reminders")
     scheduleReminder(path: path, record: record) { [weak self] error in
       guard let self = self else { return }
       var latest = self.reminderRecords
-      guard self.root == library, latest[path]?["time"] as? Double == date.timeIntervalSince1970
+      guard self.root == library, latest[path]?["time"] as? Double == date.timeIntervalSince1970,
+        latest[path]?["repeat"] as? String == repeating.rawValue
       else {
         if latest[path] == nil {
           self.noteNotifications.removePendingNotificationRequests(withIdentifiers: [identifier])
@@ -259,6 +269,7 @@ extension NotesApp: UNUserNotificationCenterDelegate {
       if let error = error {
         latest[path] = previous
         self.defaults.set(latest, forKey: "reminders")
+        self.refreshReminderList()
         self.showError(error.localizedDescription)
         return
       }
@@ -270,25 +281,25 @@ extension NotesApp: UNUserNotificationCenterDelegate {
       formatter.dateStyle = .medium
       formatter.timeStyle = .short
       self.status.stringValue = "Напоминание — " + formatter.string(from: date)
+      self.refreshReminderList()
     }
   }
 
   func scheduleReminder(
     path: String, record: [String: Any], completion: @escaping (Error?) -> Void = { _ in }
   ) {
-    guard let identifier = record["id"] as? String, let time = record["time"] as? Double else {
+    guard let identifier = record["id"] as? String, let time = record["time"] as? Double, time.isFinite else {
       return
     }
     let date = Date(timeIntervalSince1970: time)
-    guard date > Date() else { return }
+    let repeating = ReminderRepeat(rawValue: record["repeat"] as? String ?? "") ?? .none
+    guard repeating != .none || date > Date() else { return }
     let content = UNMutableNotificationContent()
     content.title = root.appendingPathComponent(path).deletingPathExtension().lastPathComponent
     content.body = "Пора вернуться к заметке."
     content.sound = .default
     content.userInfo = ["notePath": path, "notesDirectory": root.path]
-    let components = Calendar.current.dateComponents(
-      [.year, .month, .day, .hour, .minute, .second], from: date)
-    let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+    let trigger = repeating.trigger(for: date)
     noteNotifications.add(
       UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
     ) { error in DispatchQueue.main.async { completion(error) } }
@@ -318,6 +329,7 @@ extension NotesApp: UNUserNotificationCenterDelegate {
     noteNotifications.removePendingNotificationRequests(withIdentifiers: identifiers)
     noteNotifications.removeDeliveredNotifications(withIdentifiers: identifiers)
     defaults.set(records, forKey: "reminders")
+    refreshReminderList()
   }
 
   func remapReminders(from source: URL, to target: URL) {
@@ -333,12 +345,16 @@ extension NotesApp: UNUserNotificationCenterDelegate {
       }
     }
     defaults.set(records, forKey: "reminders")
+    refreshReminderList()
   }
 
   func userNotificationCenter(
     _ center: UNUserNotificationCenter, willPresent notification: UNNotification,
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
-  ) { completionHandler([.banner, .sound]) }
+  ) {
+    DispatchQueue.main.async { [weak self] in self?.refreshReminderList() }
+    completionHandler([.banner, .sound])
+  }
 
   func userNotificationCenter(
     _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
