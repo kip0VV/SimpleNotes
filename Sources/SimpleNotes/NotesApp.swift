@@ -193,6 +193,12 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     topics.target = self
     topics.action = #selector(topicChanged)
     let add = NSButton(title: "+ Тема", target: self, action: #selector(addTopic))
+    add.setContentCompressionResistancePriority(.required, for: .horizontal)
+    add.setContentHuggingPriority(.required, for: .horizontal)
+    add.toolTip = "Добавить тему — новую папку для заметок"
+    add.setAccessibilityLabel("Добавить тему")
+    topics.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    (topics.cell as? NSPopUpButtonCell)?.lineBreakMode = .byTruncatingTail
     topicControls = [topics, add]
     let row = NSStackView(views: [topics, add])
     row.orientation = .horizontal
@@ -637,13 +643,15 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   @objc func changeTheme(_ sender: NSMenuItem) {
     defaults.set(sender.representedObject as? String, forKey: "appearance")
     applyTheme()
+    refreshTree()
   }
   func applyTheme() {
     switch defaults.string(forKey: "appearance") {
     case "light": NSApp.appearance = NSAppearance(named: .aqua)
-    case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+    case "dark", "graphite": NSApp.appearance = NSAppearance(named: .darkAqua)
     default: NSApp.appearance = nil
     }
+    applyGraphiteChrome()
     applyEditorStyle()
   }
   func windowDidResize(_ notification: Notification) {
@@ -1285,7 +1293,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     icon.image = NSImage(
       systemSymbolName: node.isFolder ? "folder.fill" : "doc.text",
       accessibilityDescription: node.isFolder ? "Папка" : "Заметка")
-    icon.contentTintColor = tint ?? .secondaryLabelColor
+    icon.contentTintColor = tint ?? (isGraphite ? GraphitePalette.accent : .secondaryLabelColor)
     icon.translatesAutoresizingMaskIntoConstraints = false
     cell.addSubview(icon)
     NSLayoutConstraint.activate([
@@ -1297,7 +1305,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     field.attributedStringValue = highlighted(
       field.stringValue,
       font: .systemFont(ofSize: 13, weight: node.isFolder ? .semibold : .regular),
-      color: tint ?? .labelColor)
+      color: tint ?? (isGraphite ? GraphitePalette.text : .labelColor))
     field.maximumNumberOfLines = 1
     field.lineBreakMode = .byTruncatingTail
     field.translatesAutoresizingMaskIntoConstraints = false

@@ -25,7 +25,7 @@ extension NotesApp {
       webView.pageZoom = noteZoom
       let html = """
         <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"><style>
-        body{font:16px -apple-system,BlinkMacSystemFont,sans-serif;line-height:1.65;margin:24px;overflow-wrap:anywhere}h1,h2,h3{line-height:1.25}h1{font-size:28px}h2{font-size:23px}h3{font-size:19px}pre{padding:16px;background:rgba(128,128,128,.15);border-radius:8px;overflow:auto}code{font-family:ui-monospace,monospace;font-size:.9em}blockquote{border-left:3px solid #888;margin-left:0;padding-left:16px;color:#888}table{border-collapse:collapse;display:block;overflow:auto}th,td{border:1px solid #888;padding:7px 12px}a{color:#609bff}.task-item{list-style:none}.task-item input{margin-left:-1.4em;margin-right:.45em;accent-color:#ff575f;cursor:pointer}.date{color:#888;font-size:12px}hr{border:0;border-top:1px solid #888}
+        body{font:16px -apple-system,BlinkMacSystemFont,sans-serif;line-height:1.65;margin:24px;overflow-wrap:anywhere}h1,h2,h3{line-height:1.25}h1{font-size:28px}h2{font-size:23px}h3{font-size:19px}pre{padding:16px;background:rgba(128,128,128,.15);border-radius:8px;overflow:auto}code{font-family:ui-monospace,monospace;font-size:.9em}blockquote{border-left:3px solid #888;margin-left:0;padding-left:16px;color:#888}table{border-collapse:collapse;display:block;overflow:auto}th,td{border:1px solid #888;padding:7px 12px}a{color:var(--note-accent,#609bff)}.task-item{list-style:none}.task-item input{margin-left:-1.4em;margin-right:.45em;accent-color:var(--note-accent,#ff575f);cursor:pointer}.date{color:#888;font-size:12px}hr{border:0;border-top:1px solid #888}
         </style></head><body><h1 id="title"></h1><div class="date" id="date"></div><main id="body"></main><script>\(script)
         const parser=markdownit({html:false,linkify:true,breaks:true});
         window.renderNote=(note,theme,revision)=>{
@@ -71,10 +71,11 @@ extension NotesApp {
         (NSApp.appearance ?? window.effectiveAppearance).bestMatch(from: [.darkAqua, .aqua])
           == .darkAqua ? "dark" : "light"
       let styleValues: [String: Any] = [
+        "accent": isGraphite ? "#9BCBE7" : "#609bff",
         "font": editorStyle?.fontName ?? "-apple-system",
         "size": editorStyle?.fontSize ?? 16,
-        "background": editorStyle?.background ?? "",
-        "foreground": editorStyle?.foreground ?? "",
+        "background": editorBackgroundHex,
+        "foreground": editorForegroundHex,
       ]
       let styleData = try JSONSerialization.data(withJSONObject: styleValues)
       let styleJSON = String(decoding: styleData, as: UTF8.self).replacingOccurrences(of: "<", with: "\\u003c")
@@ -82,7 +83,7 @@ extension NotesApp {
       guard contentKey != lastPreviewPayload else { return }
       lastPreviewPayload = contentKey
       if !updatingTask || previewRevision.isEmpty { previewRevision = UUID().uuidString }
-      let payload = "var s=\(styleJSON);document.body.style.fontFamily=s.font;document.body.style.fontSize=s.size+'px';document.body.style.backgroundColor=s.background;document.body.style.color=s.foreground;window.renderNote(\(json), '\(theme)', '\(previewRevision)')"
+      let payload = "var s=\(styleJSON);document.documentElement.style.setProperty('--note-accent',s.accent);document.body.style.fontFamily=s.font;document.body.style.fontSize=s.size+'px';document.body.style.backgroundColor=s.background;document.body.style.color=s.foreground;window.renderNote(\(json), '\(theme)', '\(previewRevision)')"
       preview?.evaluateJavaScript(payload) { [weak self] _, error in
         if error != nil && self?.lastPreviewPayload == contentKey { self?.lastPreviewPayload = nil }
       }

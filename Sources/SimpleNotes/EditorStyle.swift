@@ -29,9 +29,9 @@ extension NotesApp {
     let style = editorStyle
     editor.font = style.flatMap { NSFont(name: $0.fontName, size: $0.fontSize * noteZoom) }
       ?? .systemFont(ofSize: 16 * noteZoom)
-    editor.backgroundColor = style?.background.flatMap(EditorStyle.color) ?? .textBackgroundColor
-    editor.textColor = style?.foreground.flatMap(EditorStyle.color) ?? .textColor
-    editor.insertionPointColor = editor.textColor ?? .textColor
+    editor.backgroundColor = EditorStyle.color(editorBackgroundHex) ?? .textBackgroundColor
+    editor.textColor = EditorStyle.color(editorForegroundHex) ?? .textColor
+    editor.insertionPointColor = isGraphite ? GraphitePalette.accent : (editor.textColor ?? .textColor)
     lastPreviewPayload = nil
     if mode.selectedSegment == 1 { renderMarkdown() }
   }

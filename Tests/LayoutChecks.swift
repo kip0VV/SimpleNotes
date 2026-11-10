@@ -120,6 +120,14 @@ func runLayoutChecks(notes: NotesApp) {
     "Expansion saves and preserves quick text")
   precondition(notes.editor.selectedRange() == NSRange(location: 3, length: 4)
     && notes.window.frame == regularFrame, "Expansion restores frame and selection")
+  notes.defaults.set("graphite", forKey: "appearance")
+  notes.applyTheme()
+  precondition(notes.isGraphite && notes.editor.backgroundColor == GraphitePalette.canvas,
+    "Graphite colors apply to editor")
+  notes.defaults.set("light", forKey: "appearance")
+  notes.applyTheme()
+  precondition(!notes.isGraphite && notes.editor.backgroundColor == NSColor.textBackgroundColor,
+    "Switching away from graphite restores system colors")
   precondition(EditorStyle(fontName: "Menlo-Regular", fontSize: 16,
     background: "#20242B", foreground: "#E8EAF0").valid, "Valid imported style")
   precondition(!EditorStyle(fontName: "MissingFontXYZ", fontSize: 16).valid
