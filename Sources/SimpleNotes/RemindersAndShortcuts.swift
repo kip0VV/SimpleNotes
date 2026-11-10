@@ -63,6 +63,21 @@ final class ShortcutRecorder: NSView {
   }
 }
 
+enum ReminderSchedulingError: LocalizedError {
+  case invalidRecord, pastDate
+
+  var errorDescription: String? {
+    switch self {
+    case .invalidRecord: return "Не удалось прочитать дату напоминания. Выбери дату и время заново."
+    case .pastDate: return "Время напоминания уже прошло. Выбери новое время."
+    }
+  }
+}
+
+enum ReminderScheduleResult {
+  case saved, ignored, orphaned, failed
+}
+
 extension NotesApp: UNUserNotificationCenterDelegate {
   var reminderRecords: [String: [String: Any]] {
     defaults.dictionary(forKey: "reminders") as? [String: [String: Any]] ?? [:]
@@ -236,7 +251,13 @@ extension NotesApp: UNUserNotificationCenterDelegate {
       date = selected
       break
     }
-    let schedule = { [weak self] in self?.saveReminder(for: url, at: date, repeating: input.selectedRepeat) }
+    let library = root
+    let schedule = { [weak self] in
+      guard let self = self, self.root == library,
+        FileManager.default.fileExists(atPath: url.path)
+      else { return }
+      self.saveReminder(for: url, at: date, repeating: input.selectedRepeat)
+    }
     if notificationsEnabled {
       schedule()
     } else {
@@ -251,49 +272,66 @@ extension NotesApp: UNUserNotificationCenterDelegate {
     let identifier = previous?["id"] as? String ?? UUID().uuidString
     let record: [String: Any] = [
       "id": identifier, "time": date.timeIntervalSince1970, "repeat": repeating.rawValue,
+      "revision": UUID().uuidString,
     ]
     let library = root
     records[path] = record
     defaults.set(records, forKey: "reminders")
     scheduleReminder(path: path, record: record) { [weak self] error in
       guard let self = self else { return }
-      var latest = self.reminderRecords
-      guard self.root == library, latest[path]?["time"] as? Double == date.timeIntervalSince1970,
-        latest[path]?["repeat"] as? String == repeating.rawValue
-      else {
-        if latest[path] == nil {
-          self.noteNotifications.removePendingNotificationRequests(withIdentifiers: [identifier])
-        }
-        return
-      }
-      if let error = error {
-        latest[path] = previous
-        self.defaults.set(latest, forKey: "reminders")
-        self.refreshReminderList()
-        self.showError(error.localizedDescription)
-        return
-      }
-      guard self.notificationsEnabled else {
+      let result = self.finishReminderSchedule(
+        path: path, library: library, record: record, previous: previous, error: error)
+      if result == .orphaned {
         self.noteNotifications.removePendingNotificationRequests(withIdentifiers: [identifier])
-        return
+      } else if result == .failed, let error = error {
+        self.showError(error.localizedDescription)
       }
-      let formatter = DateFormatter()
-      formatter.dateStyle = .medium
-      formatter.timeStyle = .short
-      self.status.stringValue = "Напоминание — " + formatter.string(from: date)
-      self.refreshReminderList()
     }
+  }
+
+  func finishReminderSchedule(
+    path: String, library: URL, record: [String: Any], previous: [String: Any]?, error: Error?
+  ) -> ReminderScheduleResult {
+    var latest = reminderRecords
+    guard let identifier = record["id"] as? String else { return .ignored }
+    guard root == library, let revision = record["revision"] as? String,
+      latest[path]?["id"] as? String == identifier,
+      latest[path]?["revision"] as? String == revision
+    else {
+      // A renamed note keeps its notification identifier under a new path.
+      let stillUsed = latest.values.contains { $0["id"] as? String == identifier }
+      return stillUsed ? .ignored : .orphaned
+    }
+    if error != nil {
+      latest[path] = previous
+      defaults.set(latest, forKey: "reminders")
+      refreshReminderList()
+      return .failed
+    }
+    guard notificationsEnabled else { return .orphaned }
+    let formatter = DateFormatter()
+    formatter.dateStyle = .medium
+    formatter.timeStyle = .short
+    if let time = record["time"] as? Double {
+      status.stringValue = "Напоминание — " + formatter.string(from: Date(timeIntervalSince1970: time))
+    }
+    refreshReminderList()
+    return .saved
   }
 
   func scheduleReminder(
     path: String, record: [String: Any], completion: @escaping (Error?) -> Void = { _ in }
   ) {
     guard let identifier = record["id"] as? String, let time = record["time"] as? Double, time.isFinite else {
+      completion(ReminderSchedulingError.invalidRecord)
       return
     }
     let date = Date(timeIntervalSince1970: time)
     let repeating = ReminderRepeat(rawValue: record["repeat"] as? String ?? "") ?? .none
-    guard repeating != .none || date > Date() else { return }
+    guard repeating != .none || date > Date() else {
+      completion(ReminderSchedulingError.pastDate)
+      return
+    }
     let content = UNMutableNotificationContent()
     content.title = root.appendingPathComponent(path).deletingPathExtension().lastPathComponent
     content.body = "Пора вернуться к заметке."

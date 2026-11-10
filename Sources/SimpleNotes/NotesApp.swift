@@ -802,22 +802,25 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       let fileExtension = currentURL?.pathExtension ?? "md"
       var suffix = 1
       var destination: URL
-      while true {
-        let filename =
-          existingURL?.lastPathComponent
-          ?? (suffix == 1
-            ? "\(safeTitle).\(fileExtension)" : "\(safeTitle) (\(suffix)).\(fileExtension)")
-        destination = folder.appendingPathComponent(filename)
-        if destination == currentURL {
-          try Data(content.utf8).write(to: destination, options: .atomic)
-          break
+      if let existingURL = existingURL {
+        try Data(content.utf8).write(to: existingURL, options: .atomic)
+        destination = existingURL
+      } else {
+        while true {
+          let filename = suffix == 1
+            ? "\(safeTitle).\(fileExtension)" : "\(safeTitle) (\(suffix)).\(fileExtension)"
+          destination = folder.appendingPathComponent(filename)
+          if destination == currentURL {
+            try Data(content.utf8).write(to: destination, options: .atomic)
+            break
+          }
+          do {
+            try Data(content.utf8).write(to: destination, options: .withoutOverwriting)
+            break
+          } catch let error as NSError
+            where error.domain == NSCocoaErrorDomain && error.code == NSFileWriteFileExistsError
+          { suffix += 1 }
         }
-        do {
-          try Data(content.utf8).write(to: destination, options: .withoutOverwriting)
-          break
-        } catch let error as NSError
-          where error.domain == NSCocoaErrorDomain && error.code == NSFileWriteFileExistsError
-        { suffix += 1 }
       }
       if let old = currentURL, old != destination {
         // Keep the original until the complete replacement has been written.

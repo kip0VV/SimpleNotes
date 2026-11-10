@@ -1,5 +1,9 @@
 import Cocoa
 
+DispatchQueue.global().asyncAfter(deadline: .now() + 90) {
+  FileHandle.standardError.write(Data("Test timeout: possible deadlock or save loop\n".utf8))
+  exit(1)
+}
 let application = NSApplication.shared
 let testDomain = Bundle.main.bundleIdentifier!
 UserDefaults.standard.removePersistentDomain(forName: testDomain)
@@ -183,3 +187,5 @@ runReminderChecks()
 try runReminderListChecks(notes: notes, fixture: fixture)
 
 try runManyRemindersChecks(notes: notes, fixture: fixture)
+
+try runCriticalChecks(notes: notes, fixture: fixture)
