@@ -23,7 +23,7 @@ extension NotesApp {
         id: "sidebar", title: "Показать / скрыть меню", group: "Навигация", key: "m",
         modifiers: [.command, .shift]),
       NoteAction(
-        id: "preview", title: "Предпросмотр Markdown", group: "Навигация", key: "p",
+        id: "preview", title: "Рендер заметки", group: "Навигация", key: "p",
         modifiers: [.command, .shift]),
       NoteAction(id: "editor", title: "Вернуться в редактор", group: "Навигация", key: "e"),
       NoteAction(id: "recent", title: "Недавние заметки", group: "Навигация"),
@@ -284,9 +284,7 @@ extension NotesApp {
       changeMode()
       window.makeFirstResponder(editor)
     case "recent": recentButton.performClick(nil)
-    case "refresh":
-      refreshTopics(select: selectedTopicPath)
-      refreshTree()
+    case "refresh": refreshLibrary()
     case "folder": openFolder()
     case "library": openAllNotes()
     case "zoomIn": zoomIn()

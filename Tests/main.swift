@@ -180,6 +180,8 @@ print("Optimization, zoom, shortcut and cache regression checks passed")
 
 try runFeatureChecks(notes: notes, fixture: fixture)
 
+runRefreshFeedbackChecks(notes: notes)
+
 try runMarkdownChecks(notes: notes, fixture: fixture)
 
 runLayoutChecks(notes: notes)

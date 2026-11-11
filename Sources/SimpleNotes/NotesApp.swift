@@ -68,6 +68,8 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   var reminderListTimer: Timer?
   let newNoteButton = NSButton(title: "+ Новая заметка", target: nil, action: nil)
   var suppressHoverUntil = Date.distantPast
+  let refreshButton = NSButton(title: "Обновить список", target: nil, action: nil)
+  var manualRefreshStarted: Date?
   let settingsButton = NSButton(title: "⋯", target: nil, action: nil)
   var sidebarWidth: NSLayoutConstraint!
   var mainTrailing: NSLayoutConstraint!
@@ -105,7 +107,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   var saveNoteButton: NSButton?
   let zoomLabel = NSButton(title: "100%", target: nil, action: nil)
   let mode = NSSegmentedControl(
-    labels: ["Редактор", "Просмотр Markdown"], trackingMode: .selectOne, target: nil, action: nil)
+    labels: ["Редактор", "Рендер"], trackingMode: .selectOne, target: nil, action: nil)
   var tree: [NoteNode] = []
   var allNotes: [NoteNode] = []
   let noteDragType = NSPasteboard.PasteboardType("local.personal.quicknotes.tree-item")
@@ -954,7 +956,11 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     let label = NSTextField(labelWithString: "Темы и заметки")
     label.font = .systemFont(ofSize: 16, weight: .semibold)
     let newButton = NSButton(title: "+ Новая заметка", target: self, action: #selector(newNote))
-    let refresh = NSButton(title: "Обновить список", target: self, action: #selector(refreshTree))
+    let refresh = refreshButton
+    refresh.target = self
+    refresh.action = #selector(refreshLibrary)
+    refresh.toolTip = "Перечитать папки и заметки с диска · ⌘R"
+    mode.toolTip = "Рендер — отображение Markdown и формул LaTeX"
     let reminders = makeReminderList()
     settingsButton.target = self
     settingsButton.action = #selector(showSettings)
@@ -1024,6 +1030,38 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
         lessThanOrEqualTo: settingsButton.leadingAnchor, constant: -6),
     ])
   }
+  @objc func refreshLibrary() {
+    manualRefreshStarted = Date()
+    refreshButton.title = "Обновление…"
+    refreshButton.toolTip = "Читаю папки и заметки с диска…"
+    refreshButton.isEnabled = false
+    refreshTopics(select: selectedTopicPath)
+    refreshTree()
+  }
+
+  func finishManualRefresh(generation: Int, directory: URL, succeeded: Bool) {
+    guard let started = manualRefreshStarted else { return }
+    // Keep the progress state visible even when the library is tiny.
+    let delay = max(0, 0.35 - Date().timeIntervalSince(started))
+    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+      guard let self = self, self.indexGeneration == generation, self.root == directory,
+        self.manualRefreshStarted == started else { return }
+      self.manualRefreshStarted = nil
+      self.refreshButton.isEnabled = true
+      if succeeded {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        let time = formatter.string(from: Date())
+        self.refreshButton.title = "✓ Обновлено"
+        self.refreshButton.toolTip = "Папки и заметки перечитаны с диска в \(time) · ⌘R — обновить снова"
+        if self.searchQuery.isEmpty { self.searchStatus.stringValue = "Обновлено в \(time)" }
+      } else {
+        self.refreshButton.title = "Повторить обновление"
+        self.refreshButton.toolTip = "Не удалось обновить список. Нажми, чтобы повторить."
+      }
+    }
+  }
+
   @objc func refreshTree() {
     refreshReminderList()
     if indexedRoot != root {
@@ -1051,8 +1089,10 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
           self.allNotes = notes
           self.noteBodyCache = updatedCache
           self.applySearch()
+          self.finishManualRefresh(generation: generation, directory: directory, succeeded: true)
         case .failure(let error):
           self.loadingTree = false
+          self.finishManualRefresh(generation: generation, directory: directory, succeeded: false)
           self.showError(error.localizedDescription)
         }
       }
