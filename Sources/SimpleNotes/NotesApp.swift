@@ -1214,7 +1214,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     guard searchQuery.isEmpty, let source = draggedURL(info) else { return [] }
     if !NSEvent.modifierFlags.contains(.option) {
       let parentURL = source.deletingLastPathComponent()
-      let parentNode = parentURL == root ? nil : findNode(parentURL, in: tree)
+      let parentNode = parentURL.path == root.path ? nil : findNode(parentURL, in: tree)
       let siblings = parentNode?.children ?? tree
       let pointer = outline.convert(info.draggingLocation, from: nil)
       var candidates: [(Int, CGFloat)] = []
@@ -1243,8 +1243,6 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     let destinationNode = item as? NoteNode
     guard item == nil || destinationNode?.isFolder == true else { return [] }
     let parent = destinationNode?.url ?? root
-    let isFolder = (try? source.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-    guard parent != root || isFolder else { return [] }
     guard parent != source, !parent.path.hasPrefix(source.path + "/") else { return [] }
     return .move
   }
@@ -1267,11 +1265,9 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     let parentNode = item as? NoteNode
     guard item == nil || parentNode?.isFolder == true else { return false }
     let parent = parentNode?.url ?? root
-    guard NSEvent.modifierFlags.contains(.option) || parent == source.deletingLastPathComponent()
+    guard NSEvent.modifierFlags.contains(.option) || parent.path == source.deletingLastPathComponent().path
     else { return false }
     outline.guide.isHidden = true
-    let isFolder = (try? source.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-    guard parent != root || isFolder else { return false }
     guard parent != source, !parent.path.hasPrefix(source.path + "/") else { return false }
     let movingCurrentNote = currentURL == source
     let containsCurrentNote = currentURL.map { $0.path.hasPrefix(source.path + "/") } ?? false
@@ -1285,12 +1281,12 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
         $0.lastPathComponent
       }
       var insertion = index < 0 ? siblings.count : min(index, siblings.count)
-      if oldParent == parent, let oldIndex = siblings.firstIndex(of: source.lastPathComponent),
+      if oldParent.path == parent.path, let oldIndex = siblings.firstIndex(of: source.lastPathComponent),
         oldIndex < insertion
       {
         insertion -= 1
       }
-      var ordered = siblings.filter { $0 != source.lastPathComponent || oldParent != parent }
+      var ordered = siblings.filter { $0 != source.lastPathComponent || oldParent.path != parent.path }
       let target = parent.appendingPathComponent(source.lastPathComponent)
       guard target == source || !FileManager.default.fileExists(atPath: target.path) else {
         showError("В этой папке уже есть файл или тема с таким названием. Перенос отменён.")
@@ -1299,7 +1295,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       if source != target { try FileManager.default.moveItem(at: source, to: target) }
       ordered.insert(target.lastPathComponent, at: min(max(0, insertion), ordered.count))
       var order = customOrder
-      if oldParent != parent {
+      if oldParent.path != parent.path {
         order[relativePath(oldParent)] = (order[relativePath(oldParent)] ?? []).filter {
           $0 != source.lastPathComponent
         }
