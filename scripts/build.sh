@@ -24,6 +24,8 @@ else
 fi
 cp "$project_root/Resources/Info.plist" "$app/Contents/Info.plist"
 cp "$project_root/Resources/markdown-it.min.js" "$app/Contents/Resources/"
+cp "$project_root/Resources/katex.js" "$project_root/Resources/katex.css" "$project_root/Resources/markdown-math.js" "$app/Contents/Resources/"
+cp "$project_root/ThirdPartyLicenses/katex.txt" "$app/Contents/Resources/katex-LICENSE.txt"
 cp "$project_root/Resources/AppIcon.icns" "$app/Contents/Resources/"
 cp "$project_root/ThirdPartyLicenses/markdown-it.txt" "$app/Contents/Resources/markdown-it-LICENSE.txt"
 codesign --force --deep --sign - "$app"

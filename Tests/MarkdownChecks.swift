@@ -100,6 +100,38 @@ func runMarkdownChecks(notes: NotesApp, fixture: URL) throws {
   precondition(javascript("document.documentElement.style.colorScheme", in: view) as? String == "dark",
                "Dark preview theme")
 
+  notes.editor.string = #"""
+    $$
+    x(t)=\tan^2 t, \qquad y(t)=\ln(\cos t).
+    $$
+
+    Найти $y$ по $x$: $\dfrac{dy}{dx}$.
+
+    \(a_i^2\)
+
+    \[
+    \frac{a}{b}
+    \]
+
+    - [ ] Проверить
+
+    `$не формула$`
+    """#
+  let sourceWithMath = notes.editor.string
+  notes.renderMarkdown()
+  precondition(javascript("document.querySelectorAll('#body .katex').length", in: view) as? Int == 6,
+               "All four math delimiters render in WebKit")
+  precondition(javascript("document.querySelectorAll('#body .katex-display').length", in: view) as? Int == 2,
+               "Display math renders as separate blocks")
+  precondition(javascript("document.querySelectorAll('#body .math-error').length", in: view) as? Int == 0,
+               "Sample functions, fractions and indices are valid")
+  precondition(javascript("document.querySelector('#body code').textContent", in: view) as? String == "$не формула$",
+               "Code remains literal")
+  precondition(notes.editor.string == sourceWithMath, "Math rendering never rewrites note source")
+  let mathTaskLine = javascript("Number(document.querySelector('#body input').dataset.line)", in: view) as! Int
+  precondition(NotesApp.taskMarkerRange(in: notes.editor.string, line: mathTaskLine) != nil,
+               "Task line mapping survives multiline formulas")
+
   // Draft tasks stay dirty until saving. Undo restores source and dirty state.
   notes.mode.selectedSegment = 0
   notes.editor.string = "- [ ] Черновая задача"

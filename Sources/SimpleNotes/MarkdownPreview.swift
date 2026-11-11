@@ -3,7 +3,14 @@ import WebKit
 
 extension NotesApp {
   func renderMarkdown() {
-    guard let script = markdownScript else {
+    guard let script = markdownScript,
+      let katexURL = Bundle.main.url(forResource: "katex", withExtension: "js"),
+      let mathURL = Bundle.main.url(forResource: "markdown-math", withExtension: "js"),
+      let cssURL = Bundle.main.url(forResource: "katex", withExtension: "css"),
+      let katex = try? String(contentsOf: katexURL, encoding: .utf8),
+      let math = try? String(contentsOf: mathURL, encoding: .utf8),
+      let mathCSS = try? String(contentsOf: cssURL, encoding: .utf8)
+    else {
       showError("Не найден компонент предпросмотра Markdown.")
       return
     }
@@ -24,10 +31,14 @@ extension NotesApp {
       preview = webView
       webView.pageZoom = noteZoom
       let html = """
-        <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"><style>
+        <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; font-src data:"><style>
+        \(mathCSS)
+        .katex-display{overflow-x:auto;overflow-y:hidden;padding:.25em 0}.katex{overflow-wrap:normal}.math-error{color:var(--note-accent);white-space:pre-wrap}
         body{font:16px -apple-system,BlinkMacSystemFont,sans-serif;line-height:1.65;margin:24px;overflow-wrap:anywhere}h1,h2,h3{line-height:1.25}h1{font-size:28px}h2{font-size:23px}h3{font-size:19px}pre{padding:16px;background:rgba(128,128,128,.15);border-radius:8px;overflow:auto}code{font-family:ui-monospace,monospace;font-size:.9em}blockquote{border-left:3px solid #888;margin-left:0;padding-left:16px;color:#888}table{border-collapse:collapse;display:block;overflow:auto}th,td{border:1px solid #888;padding:7px 12px}a{color:var(--note-accent,#609bff)}.task-item{list-style:none}.task-item input{margin-left:-1.4em;margin-right:.45em;accent-color:var(--note-accent,#ff575f);cursor:pointer}.date{color:#888;font-size:12px}hr{border:0;border-top:1px solid #888}
         </style></head><body><h1 id="title"></h1><div class="date" id="date"></div><main id="body"></main><script>\(script)
-        const parser=markdownit({html:false,linkify:true,breaks:true});
+        \(katex)
+        \(math)
+        const parser=markdownit({html:false,linkify:true,breaks:true}).use(noteMath);
         window.renderNote=(note,theme,revision)=>{
           document.documentElement.style.colorScheme=theme;
           document.getElementById('title').textContent=note[1];
