@@ -8,7 +8,7 @@ mkdir -p "$test_app/Contents/MacOS" "$test_app/Contents/Resources"
 /usr/libexec/PlistBuddy -c Clear "$test_app/Contents/Info.plist" >/dev/null 2>&1 || true
 /usr/libexec/PlistBuddy -c "Add CFBundleIdentifier string io.github.kip0vv.SimpleNotes.tests" "$test_app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add CFBundleExecutable string SimpleNotesTests" "$test_app/Contents/Info.plist"
-cp "$project_root/Resources/markdown-it.min.js" "$project_root/Resources/katex.js" "$project_root/Resources/katex.css" "$project_root/Resources/markdown-math.js" "$test_app/Contents/Resources/"
+cp "$project_root/Resources/markdown-it.min.js" "$project_root/Resources/katex.js" "$project_root/Resources/katex.css" "$project_root/Resources/markdown-math.js" "$project_root/Resources/note-find.js" "$test_app/Contents/Resources/"
 source_files=()
 while IFS= read -r -d '' source_file; do
   source_files+=("$source_file")

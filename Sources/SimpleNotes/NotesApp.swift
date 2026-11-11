@@ -70,6 +70,13 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   var suppressHoverUntil = Date.distantPast
   let refreshButton = NSButton(title: "Обновить список", target: nil, action: nil)
   var manualRefreshStarted: Date?
+  let noteFindField = NSSearchField()
+  let noteFindCounter = NSTextField(labelWithString: "—")
+  let noteFindPrevious = NSButton()
+  let noteFindNext = NSButton()
+  var noteFindIndex = 0
+  var noteFindCount = 0
+  var noteFindGeneration = 0
   let settingsButton = NSButton(title: "⋯", target: nil, action: nil)
   var sidebarWidth: NSLayoutConstraint!
   var mainTrailing: NSLayoutConstraint!
@@ -219,6 +226,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     titleField.font = .systemFont(ofSize: 20, weight: .medium)
     titleField.delegate = self
     titleField.stringValue = defaults.string(forKey: "draftTitle") ?? ""
+    let noteFindBar = makeNoteFindBar()
     let formatting = makeFormattingBar()
     let scroll = NSScrollView()
     editorScroll = scroll
@@ -245,7 +253,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     save.bezelStyle = .rounded
     let zoomControls = makeZoomControls()
     for item in [
-      heading, menuToggle, row, titleField, mode, newNoteButton, scroll, previewContainer, status,
+      heading, menuToggle, row, titleField, mode, noteFindBar, newNoteButton, scroll, previewContainer, status,
       recentButton, save, headerHandle, topicHandle, formatting, zoomControls,
     ] {
       item.translatesAutoresizingMaskIntoConstraints = false
@@ -295,6 +303,10 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       newNoteButton.heightAnchor.constraint(equalToConstant: 28),
       newNoteButton.leadingAnchor.constraint(
         greaterThanOrEqualTo: heading.trailingAnchor, constant: 16),
+      noteFindBar.leadingAnchor.constraint(equalTo: row.leadingAnchor),
+      noteFindBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
+      noteFindBar.topAnchor.constraint(equalTo: mode.bottomAnchor, constant: 6),
+      noteFindBar.heightAnchor.constraint(equalToConstant: 24),
       mode.leadingAnchor.constraint(equalTo: row.leadingAnchor),
       mode.topAnchor.constraint(equalTo: titleField.bottomAnchor, constant: 12),
       previewContainer.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
@@ -332,10 +344,10 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       quickStatus.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
       quickStatus.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 16),
     ]
-    regularHiddenViews = [heading, menuToggle, row, titleField, mode, newNoteButton, previewContainer,
+    regularHiddenViews = [heading, menuToggle, row, titleField, mode, noteFindBar, newNoteButton, previewContainer,
       status, recentButton, save, headerHandle, topicHandle, formatting, zoomControls]
     headerLabels = [mode, menuToggle, newNoteButton]
-    let headerViews: [NSView] = [heading, menuToggle, row, titleField, mode, newNoteButton]
+    let headerViews: [NSView] = [heading, menuToggle, row, titleField, mode, noteFindBar, newNoteButton]
     scaledConstraints = view.constraints.filter { constraint in
       constraint !== headerHeight && constraint !== titleHeight && constraint !== rowHeight
         && headerViews.contains { $0 === (constraint.firstItem as? NSView) }
@@ -766,8 +778,13 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     persistDraft()
     editor.needsDisplay = true
     scheduleQuickSave()
+    if !noteFindField.stringValue.isEmpty { updateNoteFind() }
   }
   func controlTextDidChange(_ notification: Notification) {
+    if notification.object as? NSSearchField === noteFindField {
+      updateNoteFind(reset: true, scroll: true)
+      return
+    }
     if notification.object as? NSSearchField === searchField {
       searchWork?.cancel()
       let work = DispatchWorkItem { [weak self] in self?.applySearch() }
@@ -1380,10 +1397,13 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       labelWithString: node.isFolder
         ? node.url.lastPathComponent : node.url.deletingPathExtension().lastPathComponent)
     let tint = colorPalette.first { $0.1 == itemColors[relativePath(node.url)] }?.2
+    let isRootNote = !node.isFolder
+      && node.url.deletingLastPathComponent().resolvingSymlinksInPath().path
+        == root.resolvingSymlinksInPath().path
     let icon = NSImageView()
     icon.image = NSImage(
-      systemSymbolName: node.isFolder ? "folder.fill" : "doc.text",
-      accessibilityDescription: node.isFolder ? "Папка" : "Заметка")
+      systemSymbolName: node.isFolder ? "folder.fill" : (isRootNote ? "note.text" : "doc.text"),
+      accessibilityDescription: node.isFolder ? "Папка" : (isRootNote ? "Заметка без папки" : "Заметка"))
     icon.contentTintColor = tint ?? (isGraphite ? GraphitePalette.accent : .secondaryLabelColor)
     icon.translatesAutoresizingMaskIntoConstraints = false
     cell.addSubview(icon)
@@ -1402,7 +1422,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     field.translatesAutoresizingMaskIntoConstraints = false
     cell.addSubview(field)
     cell.textField = field
-    cell.toolTip = node.url.lastPathComponent
+    cell.toolTip = isRootNote ? "Без папки · \(node.url.lastPathComponent)" : node.url.lastPathComponent
     field.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 6).isActive = true
     if node.isFolder {
       let count = NSTextField(labelWithString: String(node.noteCount))
@@ -1991,6 +2011,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     titleField.stringValue = hasHeader ? lines[0] : url.deletingPathExtension().lastPathComponent
     editor.string =
       hasHeader ? lines.dropFirst(lines[3].isEmpty ? 4 : 3).joined(separator: "\n") : content
+    updateNoteFind(reset: true)
     noteDate = hasHeader ? lines[1] : ""
     currentURL = url
     loadedContent = content
@@ -2038,6 +2059,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     editorScroll.isHidden = isPreview
     previewContainer.isHidden = !isPreview
     if isPreview { renderMarkdown() }
+    updateNoteFind(reset: true)
   }
   func showError(_ message: String) {
     let alert = NSAlert()

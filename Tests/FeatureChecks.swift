@@ -226,10 +226,10 @@ func runFeatureChecks(notes: NotesApp, fixture: URL) throws {
          "Delete cleans descendant order")
 
   // Every published action has a menu entry and settings row, and modifier encodings agree.
-  expect(notes.noteActions.count == 36 && notes.shortcutMenuItems.count == 36, "All 36 actions registered")
+  expect(notes.noteActions.count == 39 && notes.shortcutMenuItems.count == 39, "All 39 actions registered")
   let settings = NotesSettingsController(app: notes)
   settings.refresh()
-  expect(settings.actionLabels.count == 36, "All 36 actions configurable")
+  expect(settings.actionLabels.count == 39, "All 39 actions configurable")
   settings.theme.selectItem(at: 2)
   settings.changeTheme()
   expect(notes.defaults.string(forKey: "appearance") == "dark" && NSApp.appearance?.name == .darkAqua,

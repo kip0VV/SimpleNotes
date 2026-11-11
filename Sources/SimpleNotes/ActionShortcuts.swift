@@ -18,7 +18,10 @@ extension NotesApp {
       NoteAction(id: "save", title: "Сохранить заметку", group: "Заметки", key: "\r"),
       NoteAction(
         id: "topic", title: "Новая тема", group: "Заметки", key: "n", modifiers: [.command, .shift]),
-      NoteAction(id: "search", title: "Поиск по заметкам", group: "Навигация", key: "f"),
+      NoteAction(id: "search", title: "Поиск по всем заметкам", group: "Навигация"),
+      NoteAction(id: "noteFind", title: "Поиск в открытой заметке", group: "Навигация", key: "f"),
+      NoteAction(id: "noteFindNext", title: "Следующее совпадение", group: "Навигация", key: "g"),
+      NoteAction(id: "noteFindPrevious", title: "Предыдущее совпадение", group: "Навигация", key: "g", modifiers: [.command, .shift]),
       NoteAction(
         id: "sidebar", title: "Показать / скрыть меню", group: "Навигация", key: "m",
         modifiers: [.command, .shift]),
@@ -270,6 +273,9 @@ extension NotesApp {
       if quickMode { openQuickNote() } else { newNote() }
     case "save": saveNote()
     case "topic": addTopic()
+    case "noteFind": focusNoteFind()
+    case "noteFindNext": nextNoteMatch()
+    case "noteFindPrevious": previousNoteMatch()
     case "search":
       suppressHoverUntil = Date().addingTimeInterval(2)
       manualRevealUntil = Date().addingTimeInterval(2)

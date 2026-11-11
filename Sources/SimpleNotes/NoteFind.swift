@@ -1,0 +1,120 @@
+import Cocoa
+
+extension NotesApp {
+  func makeNoteFindBar() -> NSStackView {
+    noteFindField.placeholderString = "Поиск в этой заметке"
+    noteFindField.setAccessibilityLabel("Поиск в этой заметке")
+    noteFindField.delegate = self
+    noteFindField.sendsSearchStringImmediately = true
+    noteFindField.sendsWholeSearchString = false
+    noteFindField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    noteFindCounter.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+    noteFindCounter.textColor = .secondaryLabelColor
+    noteFindCounter.setContentCompressionResistancePriority(.required, for: .horizontal)
+    for (button, symbol, label, action) in [
+      (noteFindPrevious, "chevron.up", "Предыдущее совпадение · Shift+Enter", #selector(previousNoteMatch)),
+      (noteFindNext, "chevron.down", "Следующее совпадение · Enter", #selector(nextNoteMatch)),
+    ] {
+      button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+      button.toolTip = label
+      button.target = self
+      button.action = action
+      button.bezelStyle = .rounded
+      button.isEnabled = false
+      button.widthAnchor.constraint(equalToConstant: 28).isActive = true
+    }
+    let bar = NSStackView(views: [noteFindField, noteFindCounter, noteFindPrevious, noteFindNext])
+    bar.orientation = .horizontal
+    bar.spacing = 6
+    bar.alignment = .centerY
+    noteFindField.widthAnchor.constraint(greaterThanOrEqualToConstant: 80).isActive = true
+    noteFindCounter.widthAnchor.constraint(greaterThanOrEqualToConstant: 36).isActive = true
+    return bar
+  }
+
+  @objc func focusNoteFind() {
+    if quickMode { expandQuickNote() }
+    window.makeFirstResponder(noteFindField)
+    noteFindField.selectText(nil)
+  }
+
+  func updateNoteFind(reset: Bool = false, scroll: Bool = false) {
+    noteFindGeneration += 1
+    let generation = noteFindGeneration
+    let query = noteFindField.stringValue
+    if reset { noteFindIndex = 0 }
+    if mode.selectedSegment == 1, previewReady, let preview = preview {
+      guard let data = try? JSONSerialization.data(withJSONObject: [query, noteFindIndex, scroll]),
+        let json = String(data: data, encoding: .utf8) else { return }
+      preview.evaluateJavaScript("window.findInNote(..." + json.replacingOccurrences(of: "<", with: "\\u003c") + ")") { [weak self] value, error in
+        guard let self = self, generation == self.noteFindGeneration else { return }
+        let result = value as? [String: Int]
+        self.noteFindIndex = result?["index"] ?? 0
+        self.showNoteFindCount(result?["count"] ?? 0)
+      }
+      return
+    }
+    guard mode.selectedSegment == 0 else { return }
+    let source = editor.string as NSString
+    var ranges: [NSRange] = []
+    if !query.isEmpty {
+      var start = 0
+      while start < source.length {
+        let range = source.range(of: query, options: [.caseInsensitive], range: NSRange(location: start, length: source.length - start))
+        if range.location == NSNotFound { break }
+        ranges.append(range)
+        start = NSMaxRange(range)
+      }
+    }
+    let whole = NSRange(location: 0, length: source.length)
+    editor.layoutManager?.removeTemporaryAttribute(.backgroundColor, forCharacterRange: whole)
+    noteFindIndex = ranges.isEmpty ? 0 : ((noteFindIndex % ranges.count) + ranges.count) % ranges.count
+    for (index, range) in ranges.enumerated() {
+      editor.layoutManager?.addTemporaryAttribute(.backgroundColor,
+        value: (index == noteFindIndex ? NSColor.systemOrange : NSColor.systemYellow).withAlphaComponent(0.35),
+        forCharacterRange: range)
+    }
+    if scroll, !ranges.isEmpty {
+      editor.scrollRangeToVisible(ranges[noteFindIndex])
+      editor.showFindIndicator(for: ranges[noteFindIndex])
+    }
+    showNoteFindCount(ranges.count)
+  }
+
+  func showNoteFindCount(_ count: Int) {
+    noteFindCount = count
+    noteFindCounter.stringValue = noteFindField.stringValue.isEmpty ? "—" : "\(count == 0 ? 0 : noteFindIndex + 1)/\(count)"
+    noteFindCounter.setAccessibilityLabel(count == 0 ? "Совпадений нет" : "Совпадение \(noteFindIndex + 1) из \(count)")
+    noteFindPrevious.isEnabled = count > 0
+    noteFindNext.isEnabled = count > 0
+  }
+
+  @objc func nextNoteMatch() {
+    if noteFindCount > 0 { noteFindIndex = (noteFindIndex + 1) % noteFindCount }
+    updateNoteFind(scroll: true)
+  }
+  @objc func previousNoteMatch() {
+    if noteFindCount > 0 { noteFindIndex = (noteFindIndex - 1 + noteFindCount) % noteFindCount }
+    updateNoteFind(scroll: true)
+  }
+
+  func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+    guard control === noteFindField else { return false }
+    if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+      if NSApp.currentEvent?.modifierFlags.contains(.shift) == true { previousNoteMatch() }
+      else { nextNoteMatch() }
+      return true
+    }
+    if commandSelector == #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)) {
+      previousNoteMatch()
+      return true
+    }
+    if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+      noteFindField.stringValue = ""
+      updateNoteFind(reset: true)
+      window.makeFirstResponder(mode.selectedSegment == 0 ? editor : preview)
+      return true
+    }
+    return false
+  }
+}

@@ -186,6 +186,8 @@ runRefreshFeedbackChecks(notes: notes)
 
 try runMarkdownChecks(notes: notes, fixture: fixture)
 
+runNoteFindChecks(notes: notes)
+
 runLayoutChecks(notes: notes)
 
 runReminderChecks()
