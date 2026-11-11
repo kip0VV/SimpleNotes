@@ -17,8 +17,13 @@ window.findInNote = (query, requestedIndex, scroll) => {
     text += node.textContent;
   }
   const ranges = [];
-  if (query) {
-    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const words = query.trim().split(/\s+/u).filter(Boolean);
+  if (!words.length) {
+    window.getSelection().removeAllRanges();
+    return {count:0,index:0};
+  }
+  if (words.length) {
+    const escaped = words.map(word => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+');
     let firstIndex = 0, lastIndex = 0;
     for (const match of text.matchAll(new RegExp(escaped, 'giu'))) {
       const found = match.index, end = found + match[0].length;
@@ -39,7 +44,7 @@ window.findInNote = (query, requestedIndex, scroll) => {
     ranges.forEach(range => all.add(range));
     CSS.highlights.set('note-matches', all);
     if (count) CSS.highlights.set('note-current', new Highlight(ranges[index]));
-  } else if (scroll) {
+  } else if (scroll || !query.trim()) {
     const selection = window.getSelection();
     selection.removeAllRanges();
     if (count) selection.addRange(ranges[index]);

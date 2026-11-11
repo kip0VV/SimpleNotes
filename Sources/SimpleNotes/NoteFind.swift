@@ -5,6 +5,8 @@ extension NotesApp {
     noteFindField.placeholderString = "Поиск в этой заметке"
     noteFindField.setAccessibilityLabel("Поиск в этой заметке")
     noteFindField.delegate = self
+    noteFindField.target = self
+    noteFindField.action = #selector(noteFindChanged)
     noteFindField.sendsSearchStringImmediately = true
     noteFindField.sendsWholeSearchString = false
     noteFindField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -32,6 +34,10 @@ extension NotesApp {
     return bar
   }
 
+  @objc func noteFindChanged() {
+    updateNoteFind(reset: true, scroll: true)
+  }
+
   @objc func focusNoteFind() {
     if quickMode { expandQuickNote() }
     window.makeFirstResponder(noteFindField)
@@ -43,6 +49,14 @@ extension NotesApp {
     let generation = noteFindGeneration
     let query = noteFindField.stringValue
     if reset { noteFindIndex = 0 }
+    if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      editor.layoutManager?.removeTemporaryAttribute(.backgroundColor,
+        forCharacterRange: NSRange(location: 0, length: (editor.string as NSString).length))
+      if previewReady { preview?.evaluateJavaScript("window.findInNote('',0,false)", completionHandler: nil) }
+      noteFindIndex = 0
+      showNoteFindCount(0)
+      return
+    }
     if mode.selectedSegment == 1, previewReady, let preview = preview {
       guard let data = try? JSONSerialization.data(withJSONObject: [query, noteFindIndex, scroll]),
         let json = String(data: data, encoding: .utf8) else { return }
@@ -56,15 +70,13 @@ extension NotesApp {
     }
     guard mode.selectedSegment == 0 else { return }
     let source = editor.string as NSString
-    var ranges: [NSRange] = []
-    if !query.isEmpty {
-      var start = 0
-      while start < source.length {
-        let range = source.range(of: query, options: [.caseInsensitive], range: NSRange(location: start, length: source.length - start))
-        if range.location == NSNotFound { break }
-        ranges.append(range)
-        start = NSMaxRange(range)
-      }
+    let words = query.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+    let pattern = words.map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "\\s+")
+    let ranges: [NSRange]
+    if !pattern.isEmpty, let expression = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
+      ranges = expression.matches(in: editor.string, range: NSRange(location: 0, length: source.length)).map(\.range)
+    } else {
+      ranges = []
     }
     let whole = NSRange(location: 0, length: source.length)
     editor.layoutManager?.removeTemporaryAttribute(.backgroundColor, forCharacterRange: whole)
@@ -76,14 +88,13 @@ extension NotesApp {
     }
     if scroll, !ranges.isEmpty {
       editor.scrollRangeToVisible(ranges[noteFindIndex])
-      editor.showFindIndicator(for: ranges[noteFindIndex])
     }
     showNoteFindCount(ranges.count)
   }
 
   func showNoteFindCount(_ count: Int) {
     noteFindCount = count
-    noteFindCounter.stringValue = noteFindField.stringValue.isEmpty ? "—" : "\(count == 0 ? 0 : noteFindIndex + 1)/\(count)"
+    noteFindCounter.stringValue = noteFindField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "—" : "\(count == 0 ? 0 : noteFindIndex + 1)/\(count)"
     noteFindCounter.setAccessibilityLabel(count == 0 ? "Совпадений нет" : "Совпадение \(noteFindIndex + 1) из \(count)")
     noteFindPrevious.isEnabled = count > 0
     noteFindNext.isEnabled = count > 0

@@ -79,3 +79,5 @@ open build/SimpleNotes.app
 Ошибка или идея? [Создай Issue](https://github.com/kip0VV/SimpleNotes/issues) и укажи версию приложения, macOS и шаги воспроизведения.
 
 Markdown-рендеринг: [markdown-it, MIT](ThirdPartyLicenses/markdown-it.txt). Формулы: [KaTeX 0.16.21, MIT](ThirdPartyLicenses/katex.txt).
+
+Поиск внутри заметки принимает слова, фразы и целые предложения. Переносы строк, неразрывные и повторные пробелы между словами не мешают совпадению. Знаки пунктуации сравниваются буквально, регистр букв не учитывается.

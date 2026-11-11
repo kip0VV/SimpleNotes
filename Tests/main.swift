@@ -1,4 +1,6 @@
 import Cocoa
+// Keep assertion diagnostics available when Launch Services starts the test bundle.
+freopen(Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("test-stderr.txt").path, "w", stderr)
 
 DispatchQueue.global().asyncAfter(deadline: .now() + 90) {
   FileHandle.standardError.write(Data("Test timeout: possible deadlock or save loop\n".utf8))
