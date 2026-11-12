@@ -204,5 +204,9 @@ try runBugFixChecks(notes: notes, fixture: fixture)
 
 try runReminderPanelChecks(notes: notes)
 
+runFindCollapseChecks()
+
+try runExternalNoteUpdateChecks(fixture: fixture)
+
 let regressionReport = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("test-result.txt")
 try "PASS: all regression checks completed at \(Date())\n".write(to: regressionReport, atomically: true, encoding: .utf8)

@@ -1,7 +1,8 @@
 import Cocoa
+import QuartzCore
 
 extension NotesApp {
-  func makeNoteFindBar() -> NSStackView {
+  func makeNoteFindBar() -> NSView {
     noteFindField.placeholderString = "Поиск в этой заметке"
     noteFindField.setAccessibilityLabel("Поиск в этой заметке")
     noteFindField.delegate = self
@@ -31,7 +32,82 @@ extension NotesApp {
     bar.alignment = .centerY
     noteFindField.widthAnchor.constraint(greaterThanOrEqualToConstant: 80).isActive = true
     noteFindCounter.widthAnchor.constraint(greaterThanOrEqualToConstant: 36).isActive = true
-    return bar
+    let container = NSView()
+    let clip = NSView()
+    clip.wantsLayer = true
+    clip.layer?.masksToBounds = true
+    noteFindToggle.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "Поиск в заметке")
+    noteFindToggle.bezelStyle = .rounded
+    noteFindToggle.target = self
+    noteFindToggle.action = #selector(toggleNoteFind)
+    noteFindToggle.toolTip = "Поиск в заметке · ⌘F"
+    noteFindToggle.setAccessibilityLabel("Открыть поиск в заметке")
+    for child in [noteFindToggle, clip] {
+      child.translatesAutoresizingMaskIntoConstraints = false
+      container.addSubview(child)
+    }
+    bar.translatesAutoresizingMaskIntoConstraints = false
+    clip.addSubview(bar)
+    let closed = clip.widthAnchor.constraint(equalToConstant: 0)
+    let opened = clip.trailingAnchor.constraint(equalTo: container.trailingAnchor)
+    NSLayoutConstraint.activate([
+      noteFindToggle.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      noteFindToggle.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+      noteFindToggle.widthAnchor.constraint(equalToConstant: 28),
+      noteFindToggle.heightAnchor.constraint(equalToConstant: 24),
+      clip.leadingAnchor.constraint(equalTo: noteFindToggle.trailingAnchor, constant: 6),
+      clip.topAnchor.constraint(equalTo: container.topAnchor),
+      clip.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+      closed,
+      bar.leadingAnchor.constraint(equalTo: clip.leadingAnchor),
+      bar.centerYAnchor.constraint(equalTo: clip.centerYAnchor),
+      bar.widthAnchor.constraint(equalTo: container.widthAnchor, constant: -34),
+    ])
+    noteFindClip = clip
+    noteFindContents = bar
+    noteFindClosedWidth = closed
+    noteFindOpenTrailing = opened
+    bar.isHidden = true
+    bar.alphaValue = 0
+    return container
+  }
+
+  @objc func toggleNoteFind() {
+    if noteFindExpanded { setNoteFindExpanded(false) }
+    else { focusNoteFind() }
+  }
+
+  func setNoteFindExpanded(_ expanded: Bool, animated: Bool = true) {
+    guard let clip = noteFindClip, let contents = noteFindContents,
+      let closed = noteFindClosedWidth, let opened = noteFindOpenTrailing else { return }
+    noteFindAnimation += 1
+    let animation = noteFindAnimation
+    let parent = clip.superview!
+    parent.layoutSubtreeIfNeeded()
+    noteFindExpanded = expanded
+    noteFindToggle.setAccessibilityLabel(expanded ? "Закрыть поиск в заметке" : "Открыть поиск в заметке")
+    noteFindToggle.toolTip = expanded ? "Закрыть поиск · Escape" : "Поиск в заметке · ⌘F"
+    if expanded { contents.isHidden = false }
+    else {
+      noteFindField.stringValue = ""
+      updateNoteFind(reset: true)
+      if window?.firstResponder === noteFindField.currentEditor() {
+        window?.makeFirstResponder(mode.selectedSegment == 0 ? editor : preview)
+      }
+    }
+    let duration = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.22 : 0
+    NSAnimationContext.runAnimationGroup({ context in
+      context.duration = duration
+      context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+      context.allowsImplicitAnimation = duration > 0
+      if expanded { closed.isActive = false; opened.isActive = true }
+      else { opened.isActive = false; closed.isActive = true }
+      contents.animator().alphaValue = expanded ? 1 : 0
+      parent.layoutSubtreeIfNeeded()
+    }, completionHandler: { [weak self] in
+      guard let self = self, self.noteFindAnimation == animation else { return }
+      contents.isHidden = !expanded
+    })
   }
 
   @objc func noteFindChanged() {
@@ -40,6 +116,7 @@ extension NotesApp {
 
   @objc func focusNoteFind() {
     if quickMode { expandQuickNote() }
+    setNoteFindExpanded(true)
     window.makeFirstResponder(noteFindField)
     noteFindField.selectText(nil)
   }
@@ -121,9 +198,7 @@ extension NotesApp {
       return true
     }
     if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
-      noteFindField.stringValue = ""
-      updateNoteFind(reset: true)
-      window.makeFirstResponder(mode.selectedSegment == 0 ? editor : preview)
+      setNoteFindExpanded(false)
       return true
     }
     return false

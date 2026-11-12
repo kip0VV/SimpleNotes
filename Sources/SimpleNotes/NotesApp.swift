@@ -70,6 +70,13 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   var suppressHoverUntil = Date.distantPast
   let refreshButton = NSButton(title: "Обновить список", target: nil, action: nil)
   var manualRefreshStarted: Date?
+  let noteFindToggle = NSButton()
+  var noteFindClip: NSView?
+  var noteFindContents: NSView?
+  var noteFindClosedWidth: NSLayoutConstraint?
+  var noteFindOpenTrailing: NSLayoutConstraint?
+  var noteFindExpanded = false
+  var noteFindAnimation = 0
   let noteFindField = NSSearchField()
   let noteFindCounter = NSTextField(labelWithString: "—")
   let noteFindPrevious = NSButton()
@@ -139,8 +146,18 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
-  var currentURL: URL?
+  var currentURL: URL? { didSet { configureExternalNoteWatchers() } }
   var loadedContent: String?
+  var externalUpdatesEnabled = false
+  var externalFileWatch: DispatchSourceFileSystemObject?
+  var externalDirectoryWatch: DispatchSourceFileSystemObject?
+  var externalWatchPath: String?
+  var externalWatchWork: DispatchWorkItem?
+  var externalReadPending = false
+  var externalReadInFlight = false
+  var externalObservedPath: String?
+  var externalObservedStamp: ExternalNoteStamp?
+  let externalReadQueue = DispatchQueue(label: "SimpleNotes.externalNote", qos: .utility)
   var noteDate = ""
   var dirty = false { didSet { window?.isDocumentEdited = dirty } }
   var loadingTree = false
@@ -150,6 +167,12 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   let titleField = NSTextField()
   let editor = NotesTextView()
   let status = NSTextField(labelWithString: "Готово")
+
+  deinit {
+    externalWatchWork?.cancel()
+    externalFileWatch?.cancel()
+    externalDirectoryWatch?.cancel()
+  }
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.regular)
@@ -380,6 +403,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     window.makeFirstResponder(titleField)
     updateActionShortcuts()
     prepareQuickNoteService()
+    startExternalNoteUpdates()
     startupComplete = true
     if pendingQuickNote {
       pendingQuickNote = false
@@ -1048,6 +1072,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     ])
   }
   @objc func refreshLibrary() {
+    refreshOpenNoteFromDisk(force: true)
     manualRefreshStarted = Date()
     refreshButton.title = "Обновление…"
     refreshButton.toolTip = "Читаю папки и заметки с диска…"
@@ -1978,6 +2003,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   }
   func openNote(_ url: URL) {
     if url == currentURL {
+      refreshOpenNoteFromDisk(force: true)
       recordRecent(url)
       revealSearchMatch()
       return
