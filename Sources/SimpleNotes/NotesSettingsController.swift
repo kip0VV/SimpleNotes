@@ -7,6 +7,7 @@ final class NotesSettingsController: NSWindowController {
   let hide = NSButton(
     checkboxWithTitle: "Скрывать меню при уходе курсора", target: nil, action: nil)
   let reverse = NSButton(checkboxWithTitle: "Обратное направление свайпа", target: nil, action: nil)
+  let disableSwipe = NSButton(checkboxWithTitle: "Выключить свайп", target: nil, action: nil)
   let notifications = NSButton(
     checkboxWithTitle: "Уведомления о заметках", target: nil, action: nil)
   let hideReminderPanel = NSButton(checkboxWithTitle: "Скрыть меню напоминаний", target: nil, action: nil)
@@ -98,6 +99,7 @@ final class NotesSettingsController: NSWindowController {
     heading("Боковое меню")
     stack.addArrangedSubview(hide)
     stack.addArrangedSubview(reverse)
+    stack.addArrangedSubview(disableSwipe)
     let hint = NSTextField(labelWithString: "Два пальца влево — открыть, вправо — скрыть.")
     hint.textColor = .secondaryLabelColor
     stack.addArrangedSubview(hint)
@@ -120,7 +122,7 @@ final class NotesSettingsController: NSWindowController {
       button("Выбрать папку…", #selector(changeFolder)),
       button("Открыть в Finder", #selector(openFolder)),
       button("Папка выбранной темы", #selector(openTopic)))
-    for control in [dates, hide, reverse, notifications, hideReminderPanel] {
+    for control in [dates, hide, reverse, disableSwipe, notifications, hideReminderPanel] {
       control.target = self
       control.action = #selector(toggle(_:))
     }
@@ -177,6 +179,8 @@ final class NotesSettingsController: NSWindowController {
     dates.state = app.showDates ? .on : .off
     hide.state = app.autoHide.state
     reverse.state = app.defaults.bool(forKey: "reverseSidebarSwipe") ? .on : .off
+    disableSwipe.state = app.defaults.bool(forKey: "disableSidebarSwipe") ? .on : .off
+    reverse.isEnabled = disableSwipe.state == .off
     notifications.state = app.notificationsEnabled ? .on : .off
     hideReminderPanel.state = app.reminderSidebarHidden ? .on : .off
     shortcut.stringValue =
@@ -200,6 +204,7 @@ final class NotesSettingsController: NSWindowController {
     case hideReminderPanel: app.toggleReminderSidebar()
     case dates: app.toggleDate()
     case hide: app.toggleAutoHide()
+    case disableSwipe: app.defaults.set(sender.state == .on, forKey: "disableSidebarSwipe")
     case reverse: app.defaults.set(sender.state == .on, forKey: "reverseSidebarSwipe")
     default:
       if sender.state == .on {

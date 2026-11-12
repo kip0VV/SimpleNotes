@@ -548,6 +548,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     defaults.set(Double(scale), forKey: "topicScale")
   }
   func handleHorizontalGesture(delta: CGFloat) {
+    guard !defaults.bool(forKey: "disableSidebarSwipe") else { return }
     suppressHoverUntil = Date().addingTimeInterval(1.5)
     manualRevealUntil = Date().addingTimeInterval(1.5)
     let reveal = delta > 0
@@ -574,6 +575,14 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     }
   }
   func processWindowGesture(_ event: NSEvent) -> Bool {
+    if defaults.bool(forKey: "disableSidebarSwipe") {
+      swipe = HorizontalSwipe()
+      touchOrigin = nil
+      touchSwipeRecognized = false
+      lastGestureEvent = nil
+      lastGestureResult = false
+      return false
+    }
     if event === lastGestureEvent { return lastGestureResult }
     lastGestureEvent = event
     lastGestureResult = updateWindowGesture(event)
