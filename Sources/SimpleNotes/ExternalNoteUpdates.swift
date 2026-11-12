@@ -66,6 +66,12 @@ extension NotesApp {
   }
 
   func refreshOpenNoteFromDisk(force: Bool = false) {
+    // ИСПРАВЛЕНИЕ: Если редактор помечен как измененный, но текст совпадает
+    // с сохраненным, значит флаг "dirty" залип. Сбрасываем его.
+    if dirty && editor.string == loadedContent {
+      dirty = false
+    }
+    
     guard !dirty, !quickMode, let url = currentURL, let baseline = loadedContent else { return }
     if externalReadInFlight { externalReadPending = true; return }
     externalReadInFlight = true
@@ -87,6 +93,12 @@ extension NotesApp {
             self.refreshOpenNoteFromDisk(force: true)
           }
         }
+        
+        // ИСПРАВЛЕНИЕ: Повторная проверка на залипший флаг "dirty" перед обновлением
+        if self.dirty && self.editor.string == baseline {
+          self.dirty = false
+        }
+        
         guard !self.dirty, !self.quickMode, self.currentURL?.path == url.path,
           self.loadedContent == baseline, let (stamp, content) = result else { return }
         self.externalObservedPath = url.path

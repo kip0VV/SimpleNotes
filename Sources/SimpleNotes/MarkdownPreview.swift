@@ -16,6 +16,11 @@ extension NotesApp {
       showError("Не найден компонент предпросмотра Markdown.")
       return
     }
+
+    if preview == nil {
+      previewReady = false
+      lastPreviewPayload = nil
+    }
     if preview == nil {
       let configuration = WKWebViewConfiguration()
       configuration.userContentController.add(TaskToggleHandler(owner: self), name: "taskToggle")
@@ -34,7 +39,7 @@ extension NotesApp {
       preview = webView
       webView.pageZoom = noteZoom
       let html = """
-        <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; font-src data:"><style>
+        <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; font-src data:"><style>
         ::highlight(note-matches){background:rgba(255,215,0,.35)}::highlight(note-current){background:rgba(255,150,35,.65)}
         \(mathCSS)
         .katex-display{overflow-x:auto;overflow-y:hidden;padding:.25em 0}.katex{overflow-wrap:normal}.math-error{color:var(--note-accent);white-space:pre-wrap}
@@ -97,13 +102,18 @@ extension NotesApp {
       let styleData = try JSONSerialization.data(withJSONObject: styleValues)
       let styleJSON = String(decoding: styleData, as: UTF8.self).replacingOccurrences(of: "<", with: "\\u003c")
       let contentKey = styleJSON + json + theme + (currentURL?.path ?? "draft")
-      guard contentKey != lastPreviewPayload else { return }
+      //guard contentKey != lastPreviewPayload else { return }
       lastPreviewPayload = contentKey
       if !updatingTask || previewRevision.isEmpty { previewRevision = UUID().uuidString }
       let payload = "var s=\(styleJSON);document.documentElement.style.setProperty('--note-accent',s.accent);document.body.style.fontFamily=s.font;document.body.style.fontSize=s.size+'px';document.body.style.backgroundColor=s.background;document.body.style.color=s.foreground;window.renderNote(\(json), '\(theme)', '\(previewRevision)')"
       preview?.evaluateJavaScript(payload) { [weak self] _, error in
-        if error != nil && self?.lastPreviewPayload == contentKey { self?.lastPreviewPayload = nil }
-        if error == nil { self?.updateNoteFind() }
+        if let error = error {
+          print("Preview JS error: \(error)")
+          // Если произошла ошибка JS, мы больше не пересоздаем WebView бесконечно,
+          // а просто пишем об этом в консоль, чтобы не было серого экрана.
+        } else {
+          self?.updateNoteFind()
+        }
       }
     } catch { showError(error.localizedDescription) }
   }
@@ -141,5 +151,27 @@ extension NotesApp {
     previewReady = false
     lastPreviewPayload = nil
     if mode.selectedSegment == 1 { renderMarkdown() }
+  }
+
+  func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+    guard webView === preview else { return }
+    previewReady = false
+    lastPreviewPayload = nil
+    webView.removeFromSuperview()
+    preview = nil
+    DispatchQueue.main.async { [weak self] in
+      self?.renderMarkdown()
+    }
+  }
+
+  func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+    guard webView === preview else { return }
+    previewReady = false
+    lastPreviewPayload = nil
+    webView.removeFromSuperview()
+    preview = nil
+    DispatchQueue.main.async { [weak self] in
+      self?.renderMarkdown()
+    }
   }
 }
