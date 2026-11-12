@@ -11,6 +11,7 @@ func runFindCollapseChecks() {
   notes.editor.string = "текст и текст"
   notes.mode.selectedSegment = 0
   notes.setNoteFindExpanded(true, animated: false)
+  notes.window.makeFirstResponder(notes.noteFindField)
   notes.noteFindField.stringValue = "текст"
   notes.updateNoteFind(reset: true)
   precondition(notes.noteFindCount == 2)
@@ -33,8 +34,11 @@ func runFindCollapseChecks() {
   while notes.noteFindCount != 2 && Date() < findDeadline { RunLoop.current.run(until: Date().addingTimeInterval(0.02)) }
   precondition(notes.noteFindCount == 2)
   precondition(notes.control(notes.noteFindField, textView: notes.editor, doCommandBy: #selector(NSResponder.cancelOperation(_:))))
+  // A delayed text/render callback must never revive a closed search.
+  notes.noteFindField.stringValue = "текст"
+  notes.updateNoteFind(scroll: true)
   var cleared: Bool?
-  notes.preview!.evaluateJavaScript("(!window.CSS || !CSS.highlights || (!CSS.highlights.has('note-matches') && !CSS.highlights.has('note-current'))) && window.getSelection().rangeCount === 0") { value, _ in cleared = value as? Bool }
+  notes.preview!.evaluateJavaScript("(!window.CSS || !CSS.highlights || (!CSS.highlights.has('note-matches') && !CSS.highlights.has('note-current'))) && window.getSelection().rangeCount === 0 && document.querySelectorAll('[data-note-find]').length === 0") { value, _ in cleared = value as? Bool }
   let clearDeadline = Date().addingTimeInterval(5)
   while cleared == nil && Date() < clearDeadline { RunLoop.current.run(until: Date().addingTimeInterval(0.02)) }
   precondition(cleared == true && !notes.noteFindExpanded && notes.noteFindCount == 0,

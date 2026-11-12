@@ -46,6 +46,7 @@ extension NotesApp {
       child.translatesAutoresizingMaskIntoConstraints = false
       container.addSubview(child)
     }
+    bar.wantsLayer = true
     bar.translatesAutoresizingMaskIntoConstraints = false
     clip.addSubview(bar)
     let closed = clip.widthAnchor.constraint(equalToConstant: 0)
@@ -89,24 +90,31 @@ extension NotesApp {
     noteFindToggle.toolTip = expanded ? "Закрыть поиск · Escape" : "Поиск в заметке · ⌘F"
     if expanded { contents.isHidden = false }
     else {
+      // End field editing first: AppKit can commit the old field-editor value.
+      window?.makeFirstResponder(mode.selectedSegment == 0 ? editor : preview)
       noteFindField.stringValue = ""
       updateNoteFind(reset: true)
-      if window?.firstResponder === noteFindField.currentEditor() {
-        window?.makeFirstResponder(mode.selectedSegment == 0 ? editor : preview)
-      }
     }
     let duration = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.22 : 0
+    if expanded { closed.isActive = false; opened.isActive = true }
+    parent.layoutSubtreeIfNeeded()
+    // Animate only the search contents, never WebKit's ancestor layout/layers.
+    if duration > 0, let layer = contents.layer {
+      let slide = CABasicAnimation(keyPath: "transform.translation.x")
+      slide.fromValue = expanded ? -contents.bounds.width : 0
+      slide.toValue = expanded ? 0 : -contents.bounds.width
+      slide.duration = duration
+      slide.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+      layer.add(slide, forKey: "noteFindSlide")
+    }
     NSAnimationContext.runAnimationGroup({ context in
       context.duration = duration
-      context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-      context.allowsImplicitAnimation = duration > 0
-      if expanded { closed.isActive = false; opened.isActive = true }
-      else { opened.isActive = false; closed.isActive = true }
       contents.animator().alphaValue = expanded ? 1 : 0
-      parent.layoutSubtreeIfNeeded()
     }, completionHandler: { [weak self] in
       guard let self = self, self.noteFindAnimation == animation else { return }
       contents.isHidden = !expanded
+      if !expanded { opened.isActive = false; closed.isActive = true }
+      parent.layoutSubtreeIfNeeded()
     })
   }
 
@@ -124,7 +132,7 @@ extension NotesApp {
   func updateNoteFind(reset: Bool = false, scroll: Bool = false) {
     noteFindGeneration += 1
     let generation = noteFindGeneration
-    let query = noteFindField.stringValue
+    let query = noteFindExpanded ? noteFindField.stringValue : ""
     if reset { noteFindIndex = 0 }
     if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       editor.layoutManager?.removeTemporaryAttribute(.backgroundColor,

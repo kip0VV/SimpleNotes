@@ -1,6 +1,7 @@
 import Cocoa
 
 func runNoteFindChecks(notes: NotesApp) {
+  notes.noteFindExpanded = true
   notes.mode.selectedSegment = 0
   notes.editor.string = "Искать 🙂 текст, ТЕКСТ и текст."
   let source = notes.editor.string

@@ -1,8 +1,17 @@
-// Ranges highlight rendered text without rewriting the DOM or touching math markup.
+// Highlight text fragments with ordinary spans; WebKit CSS Highlight painting can go stale.
 window.findInNote = (query, requestedIndex, scroll) => {
   if (window.CSS && CSS.highlights) {
     CSS.highlights.delete('note-matches');
     CSS.highlights.delete('note-current');
+  }
+  document.querySelectorAll('[data-note-find]').forEach(mark => {
+    const parent = mark.parentNode;
+    mark.replaceWith(...mark.childNodes);
+    parent.normalize();
+  });
+  if (!query.trim()) {
+    window.getSelection()?.removeAllRanges();
+    return {count:0,index:0};
   }
   const nodes = [];
   const walker = document.createTreeWalker(document.getElementById('body'), NodeFilter.SHOW_TEXT, {
@@ -39,19 +48,32 @@ window.findInNote = (query, requestedIndex, scroll) => {
     }
   }
   const count = ranges.length, index = count ? ((requestedIndex % count)+count)%count : 0;
-  if (window.CSS && CSS.highlights && window.Highlight) {
-    const all = new Highlight();
-    ranges.forEach(range => all.add(range));
-    CSS.highlights.set('note-matches', all);
-    if (count) CSS.highlights.set('note-current', new Highlight(ranges[index]));
-  } else if (scroll || !query.trim()) {
-    const selection = window.getSelection();
-    selection.removeAllRanges();
-    if (count) selection.addRange(ranges[index]);
+  // Work backwards so splitting a text node cannot invalidate later offsets.
+  let currentMark = null;
+  const fragments = [];
+  ranges.forEach((range, matchIndex) => {
+    for (const entry of nodes) {
+      if (!range.intersectsNode(entry.node)) continue;
+      const start = entry.node === range.startContainer ? range.startOffset : 0;
+      const end = entry.node === range.endContainer ? range.endOffset : entry.node.length;
+      if (end > start) fragments.push({node:entry.node,start,end,matchIndex});
+    }
+  });
+  for (const fragment of fragments.reverse()) {
+    const range = document.createRange();
+    range.setStart(fragment.node, fragment.start);
+    range.setEnd(fragment.node, fragment.end);
+    const mark = document.createElement('span');
+    mark.dataset.noteFind = String(fragment.matchIndex);
+    mark.style.backgroundColor = fragment.matchIndex === index ? 'rgba(255,150,35,.65)' : 'rgba(255,215,0,.35)';
+    range.surroundContents(mark);
+    if (fragment.matchIndex === index) currentMark = mark;
   }
-  if (scroll && count) {
-    const rect = ranges[index].getBoundingClientRect();
-    window.scrollBy({top:rect.top-window.innerHeight/2, behavior:'instant'});
+  if (scroll && currentMark) {
+    const rect = currentMark.getBoundingClientRect();
+    const root = document.scrollingElement;
+    const target = root.scrollTop + rect.top - window.innerHeight / 2;
+    root.scrollTop = Math.max(0, Math.min(target, root.scrollHeight - root.clientHeight));
   }
   return {count,index};
 };
