@@ -18,6 +18,18 @@ struct ExternalNoteStamp: Equatable {
 }
 
 extension NotesApp {
+  // Compare the editable fields, not the serialized file (which may include metadata).
+  // A title or folder change is also an unsaved edit, even when the body is unchanged.
+  func editingMatchesLoadedNote() -> Bool {
+    guard let content = loadedContent, let url = currentURL else { return false }
+    let lines = content.components(separatedBy: "\n")
+    let hasHeader = NoteMetadata.hasHeader(lines)
+    let body = hasHeader ? lines.dropFirst(lines[3].isEmpty ? 4 : 3).joined(separator: "\n") : content
+    let title = hasHeader ? lines[0] : url.deletingPathExtension().lastPathComponent
+    let folder = String(url.deletingLastPathComponent().path.dropFirst(root.path.count + 1))
+    return editor.string == body && titleField.stringValue == title && selectedTopicPath == folder
+  }
+
   func startExternalNoteUpdates() {
     externalUpdatesEnabled = true
     configureExternalNoteWatchers()
@@ -28,6 +40,7 @@ extension NotesApp {
     let path = currentURL?.path
     guard force || externalWatchPath != path else { return }
     externalWatchWork?.cancel()
+    externalWatchWork = nil
     externalFileWatch?.cancel()
     externalDirectoryWatch?.cancel()
     externalFileWatch = nil
@@ -50,10 +63,12 @@ extension NotesApp {
   }
 
   func scheduleExternalNoteRefresh() {
-    externalWatchWork?.cancel()
+    // Coalesce events, but do not postpone forever during continuous external saves.
+    guard externalWatchWork == nil else { return }
     let path = currentURL?.path
     let work = DispatchWorkItem { [weak self] in
       guard let self = self, self.currentURL?.path == path else { return }
+      self.externalWatchWork = nil
       self.configureExternalNoteWatchers(force: true)
       self.refreshOpenNoteFromDisk()
     }
@@ -66,9 +81,7 @@ extension NotesApp {
   }
 
   func refreshOpenNoteFromDisk(force: Bool = false) {
-    // ИСПРАВЛЕНИЕ: Если редактор помечен как измененный, но текст совпадает
-    // с сохраненным, значит флаг "dirty" залип. Сбрасываем его.
-    if dirty && editor.string == loadedContent {
+    if dirty && editingMatchesLoadedNote() {
       dirty = false
     }
     
@@ -94,8 +107,8 @@ extension NotesApp {
           }
         }
         
-        // ИСПРАВЛЕНИЕ: Повторная проверка на залипший флаг "dirty" перед обновлением
-        if self.dirty && self.editor.string == baseline {
+        guard self.currentURL?.path == url.path, self.loadedContent == baseline else { return }
+        if self.dirty && self.editingMatchesLoadedNote() {
           self.dirty = false
         }
         

@@ -99,6 +99,11 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   let previewContainer = NSView()
   var preview: WKWebView?
   var previewReady = false
+  var previewRenderWork: DispatchWorkItem?
+  let previewStatus = PreviewStatusView()
+  var previewStatusWork: DispatchWorkItem?
+  var previewRenderGeneration = 0
+  var previewRecoveryAttempts = 0
   var lastPreviewPayload: String?
   var previewRevision = ""
   var updatingTask = false
@@ -108,6 +113,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
   var indexGeneration = 0
   var indexedRoot: URL?
+  var savedNoteToReveal: URL?
   let indexQueue: OperationQueue = {
     let queue = OperationQueue()
     queue.name = "SimpleNotes.noteIndex"
@@ -169,6 +175,8 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   let status = NSTextField(labelWithString: "Готово")
 
   deinit {
+    previewRenderWork?.cancel()
+    previewStatusWork?.cancel()
     externalWatchWork?.cancel()
     externalFileWatch?.cancel()
     externalDirectoryWatch?.cancel()
@@ -811,6 +819,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     persistDraft()
     editor.needsDisplay = true
     scheduleQuickSave()
+    scheduleMarkdownRender()
     if !noteFindField.stringValue.isEmpty { updateNoteFind() }
   }
   func controlTextDidChange(_ notification: Notification) {
@@ -827,6 +836,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     }
     dirty = true
     persistDraft()
+    scheduleMarkdownRender()
   }
   func windowShouldClose(_ sender: NSWindow) -> Bool {
     if quickMode { flushQuickSave() }
@@ -990,6 +1000,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       if quickMode { quickStatus.stringValue = "✓ Сохранено" }
       persistDraft()
       noteBodyCache.removeValue(forKey: destination)
+      savedNoteToReveal = destination
       refreshTree()
       status.stringValue =
         "Сохранено в «\(topic.isEmpty ? "Без папки" : topic)»"
@@ -1140,6 +1151,23 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
           self.allNotes = notes
           self.noteBodyCache = updatedCache
           self.applySearch()
+          if let saved = self.savedNoteToReveal {
+            self.savedNoteToReveal = nil
+            if self.currentURL == saved, let node = self.findNode(saved, in: self.tree) {
+              var folder = saved.deletingLastPathComponent()
+              var parents: [NoteNode] = []
+              while folder.path.hasPrefix(self.root.path + "/") {
+                if let parent = self.findNode(folder, in: self.tree) { parents.append(parent) }
+                folder.deleteLastPathComponent()
+              }
+              for parent in parents.reversed() { self.outline.expandItem(parent) }
+              let row = self.outline.row(forItem: node)
+              if row >= 0 {
+                self.outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                self.outline.scrollRowToVisible(row)
+              }
+            }
+          }
           self.finishManualRefresh(generation: generation, directory: directory, succeeded: true)
         case .failure(let error):
           self.loadingTree = false
@@ -2011,7 +2039,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     openNote(node.url)
   }
   func openNote(_ url: URL) {
-    if url == currentURL {
+    if url == currentURL, loadedContent != nil {
       refreshOpenNoteFromDisk(force: true)
       recordRecent(url)
       revealSearchMatch()

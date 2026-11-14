@@ -210,5 +210,13 @@ runFindCollapseChecks()
 
 try runExternalNoteUpdateChecks(fixture: fixture)
 
+try runLiveRuntimeChecks(fixture: fixture)
+
+try runFullWindowRuntimeChecks(fixture: fixture)
+
+try runHighlightPaintChecks()
+
+try runPreviewLoadingChecks()
+
 let regressionReport = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("test-result.txt")
 try "PASS: all regression checks completed at \(Date())\n".write(to: regressionReport, atomically: true, encoding: .utf8)

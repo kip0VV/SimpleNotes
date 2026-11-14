@@ -2,26 +2,36 @@ import Cocoa
 import WebKit
 
 extension NotesApp {
-  func renderMarkdown() {
-    guard let script = markdownScript,
-      let katexURL = Bundle.main.url(forResource: "katex", withExtension: "js"),
-      let mathURL = Bundle.main.url(forResource: "markdown-math", withExtension: "js"),
-      let cssURL = Bundle.main.url(forResource: "katex", withExtension: "css"),
-      let katex = try? String(contentsOf: katexURL, encoding: .utf8),
-      let math = try? String(contentsOf: mathURL, encoding: .utf8),
-      let findURL = Bundle.main.url(forResource: "note-find", withExtension: "js"),
-      let findScript = try? String(contentsOf: findURL, encoding: .utf8),
-      let mathCSS = try? String(contentsOf: cssURL, encoding: .utf8)
-    else {
-      showError("Не найден компонент предпросмотра Markdown.")
-      return
+  func scheduleMarkdownRender() {
+    previewRenderWork?.cancel()
+    guard mode.selectedSegment == 1 else { return }
+    let work = DispatchWorkItem { [weak self] in
+      guard let self = self, self.mode.selectedSegment == 1 else { return }
+      self.renderMarkdown()
     }
+    previewRenderWork = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
+  }
 
+  func renderMarkdown() {
     if preview == nil {
       previewReady = false
       lastPreviewPayload = nil
     }
     if preview == nil {
+      guard let script = markdownScript,
+        let katexURL = Bundle.main.url(forResource: "katex", withExtension: "js"),
+        let mathURL = Bundle.main.url(forResource: "markdown-math", withExtension: "js"),
+        let cssURL = Bundle.main.url(forResource: "katex", withExtension: "css"),
+        let katex = try? String(contentsOf: katexURL, encoding: .utf8),
+        let math = try? String(contentsOf: mathURL, encoding: .utf8),
+        let findURL = Bundle.main.url(forResource: "note-find", withExtension: "js"),
+        let findScript = try? String(contentsOf: findURL, encoding: .utf8),
+        let mathCSS = try? String(contentsOf: cssURL, encoding: .utf8)
+      else {
+        finishPreviewLoading(error: true)
+        return
+      }
       let configuration = WKWebViewConfiguration()
       configuration.userContentController.add(TaskToggleHandler(owner: self), name: "taskToggle")
       let webView = WKWebView(frame: .zero, configuration: configuration)
@@ -29,7 +39,8 @@ extension NotesApp {
       webView.setValue(false, forKey: "drawsBackground")
       webView.navigationDelegate = self
       webView.allowedTouchTypes = [.indirect]
-      previewContainer.addSubview(webView)
+      previewContainer.addSubview(webView, positioned: .below,
+        relativeTo: previewStatus.superview == nil ? nil : previewStatus)
       NSLayoutConstraint.activate([
         webView.leadingAnchor.constraint(equalTo: previewContainer.leadingAnchor),
         webView.trailingAnchor.constraint(equalTo: previewContainer.trailingAnchor),
@@ -37,6 +48,8 @@ extension NotesApp {
         webView.bottomAnchor.constraint(equalTo: previewContainer.bottomAnchor),
       ])
       preview = webView
+      previewRenderGeneration += 1
+      showPreviewLoading(immediately: true)
       webView.pageZoom = noteZoom
       let html = """
         <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; font-src data:"><style>
@@ -102,17 +115,28 @@ extension NotesApp {
       let styleData = try JSONSerialization.data(withJSONObject: styleValues)
       let styleJSON = String(decoding: styleData, as: UTF8.self).replacingOccurrences(of: "<", with: "\\u003c")
       let contentKey = styleJSON + json + theme + (currentURL?.path ?? "draft")
-      //guard contentKey != lastPreviewPayload else { return }
+      guard contentKey != lastPreviewPayload else { return }
       lastPreviewPayload = contentKey
+      previewRenderGeneration += 1
+      let generation = previewRenderGeneration
+      showPreviewLoading(immediately: false)
       if !updatingTask || previewRevision.isEmpty { previewRevision = UUID().uuidString }
       let payload = "var s=\(styleJSON);document.documentElement.style.setProperty('--note-accent',s.accent);document.body.style.fontFamily=s.font;document.body.style.fontSize=s.size+'px';document.body.style.backgroundColor=s.background;document.body.style.color=s.foreground;window.renderNote(\(json), '\(theme)', '\(previewRevision)')"
-      preview?.evaluateJavaScript(payload) { [weak self] _, error in
+      let renderingView = preview
+      renderingView?.evaluateJavaScript(payload) { [weak self] _, error in
+        guard let self = self, generation == self.previewRenderGeneration,
+          self.preview === renderingView else { return }
         if let error = error {
           print("Preview JS error: \(error)")
-          // Если произошла ошибка JS, мы больше не пересоздаем WebView бесконечно,
-          // а просто пишем об этом в консоль, чтобы не было серого экрана.
+          // Retry this payload on the next update, without destroying the WebView.
+          if self.lastPreviewPayload == contentKey { self.lastPreviewPayload = nil }
+          self.finishPreviewLoading(error: true)
         } else {
-          self?.updateNoteFind()
+          self.previewRecoveryAttempts = 0
+          self.updateNoteFind()
+          if let renderingView = renderingView {
+            self.finishRenderedPreview(generation: generation, in: renderingView)
+          }
         }
       }
     } catch { showError(error.localizedDescription) }
@@ -150,28 +174,28 @@ extension NotesApp {
     preview = nil
     previewReady = false
     lastPreviewPayload = nil
-    if mode.selectedSegment == 1 { renderMarkdown() }
+    previewRenderGeneration += 1
+    if mode.selectedSegment == 1 {
+      if previewRecoveryAttempts < 2 {
+        previewRecoveryAttempts += 1
+        renderMarkdown()
+      } else { finishPreviewLoading(error: true) }
+    }
   }
 
   func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
     guard webView === preview else { return }
     previewReady = false
     lastPreviewPayload = nil
-    webView.removeFromSuperview()
-    preview = nil
-    DispatchQueue.main.async { [weak self] in
-      self?.renderMarkdown()
-    }
+    previewRenderGeneration += 1
+    finishPreviewLoading(error: true)
   }
 
   func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
     guard webView === preview else { return }
     previewReady = false
     lastPreviewPayload = nil
-    webView.removeFromSuperview()
-    preview = nil
-    DispatchQueue.main.async { [weak self] in
-      self?.renderMarkdown()
-    }
+    previewRenderGeneration += 1
+    finishPreviewLoading(error: true)
   }
 }

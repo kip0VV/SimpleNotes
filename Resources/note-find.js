@@ -2,6 +2,10 @@
 window.findInNote = (query, requestedIndex, scroll) => {
   // 1. Очищаем предыдущие результаты поиска
   if (window.CSS && CSS.highlights) {
+    // Empty the registered ranges first. Older WebKit versions can leave their
+    // painted backgrounds behind when a registry entry is simply deleted.
+    CSS.highlights.get('note-matches')?.clear();
+    CSS.highlights.get('note-current')?.clear();
     CSS.highlights.delete('note-matches');
     CSS.highlights.delete('note-current');
   }
