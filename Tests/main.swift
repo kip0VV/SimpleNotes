@@ -190,6 +190,8 @@ try runMarkdownChecks(notes: notes, fixture: fixture)
 
 runNoteFindChecks(notes: notes)
 
+runNoteVolumeChecks()
+
 runLayoutChecks(notes: notes)
 
 runReminderChecks()
