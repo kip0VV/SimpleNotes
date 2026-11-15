@@ -49,7 +49,8 @@ console.log('PASS: parser-aware source edits, nested quoted fences, partial clea
 
 assert(transform('**bold**','topic',0,4).error, 'Crossed emphasis boundary must not damage Markdown');
 assert(transform('$x^2$','topic',1,4).error, 'Partial formulas are protected');
-assert(transform('**bold**','topic').error);
+assert.strictEqual(transform('**bold**','topic').text,'[**bold**]{topic}');
+assert.strictEqual(transform('***both***','topic').text,'[***both***]{topic}');
 assert.strictEqual(transform('*italic*','topic').text,'[*italic*]{topic}');
 assert.strictEqual(transform('## *Heading*','topic').text,'## [*Heading*]{topic}');
 
@@ -62,3 +63,6 @@ for(const source of ['| A | B |\n|---|---|\n| cell | cell |','| A | B |\n|â€”|â€
 const table='| [A]{topic} | [B]{topic} |\n|---|---|\n| C | 0 |';
 assert.strictEqual(transform(table,'clear').text,'| A | B |\n|---|---|\n| C | 0 |');
 console.log('PASS: restrictive color policy, malformed tables, whole formulas/code, and table color recovery');
+
+const headingEdit=transform('## *Heading*','topic');
+assert.strictEqual(headingEdit.text.slice(headingEdit.start,headingEdit.start+headingEdit.length),'*Heading*');

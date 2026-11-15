@@ -125,10 +125,10 @@ function transformNoteColor(source, start, length, style) {
   const tokens = md.parse(source,{});
   const blocked = tokens.filter(t => ['fence','code_block','html_block','note_math_block','table_open','bullet_list_open','ordered_list_open','blockquote_open'].includes(t.type) && t.map)
     .map(t => ({a:offsets[t.map[0]],b:offsets[t.map[1]]}));
-  // A deliberately narrow editing policy: text, headings and italic only.
+  // A deliberately narrow editing policy: text, headings, bold and italic only.
   // Reject the whole inline block if it contains unsupported formatting, even
   // when the user selected just its visible text in the preview.
-  const allowedInline = new Set(['text','em_open','em_close','softbreak','hardbreak','note_color_open','note_color_close']);
+  const allowedInline = new Set(['text','em_open','em_close','strong_open','strong_close','softbreak','hardbreak','note_color_open','note_color_close']);
   for(const token of tokens) {
     if(token.type==='inline' && token.map && (token.children||[]).some(t=>!allowedInline.has(t.type)))
       blocked.push({a:offsets[token.map[0]],b:offsets[token.map[1]]});
@@ -138,6 +138,7 @@ function transformNoteColor(source, start, length, style) {
   lines.forEach((line,i)=>{ if(line.includes('|') || line.includes('~~')) blocked.push({a:offsets[i],b:offsets[i+1]}); });
   const end = start + length, overlaps = r => r.a < end && r.b > start;
   const edits = [];
+  let selectionTarget = null;
   if (style === 'clear') {
     // Clear enclosing annotations as a unit: splitting one through **emphasis**,
     // links or math would damage the original Markdown structure.
@@ -146,11 +147,12 @@ function transformNoteColor(source, start, length, style) {
     }
   } else {
     if (blocked.some(overlaps) || code.some(overlaps))
-      return {error:'Раскрашивать можно только обычный текст, заголовки и курсив. Таблицы, формулы, жирный текст, ссылки, списки, цитаты и код защищены. Выделение не изменено.'};
+      return {error:'Раскрашивать можно только обычный текст, заголовки, жирный текст и курсив. Таблицы, формулы, ссылки, списки, цитаты и код защищены. Выделение не изменено.'};
     const kind = s => s.startsWith('text-') ? 'text' : s.startsWith('bg-') ? 'bg' : 'semantic';
     const replaced = colors.filter(c => c.innerA === start && c.innerB === end && kind(c.style) === kind(style));
     for(const c of replaced) edits.push({a:c.a,b:c.innerA,text:''},{a:c.innerB,b:c.b,text:''});
     const targets = spans.map(r => ({a:Math.max(start,r.a),b:Math.min(end,r.b)})).filter(r => r.a<r.b);
+    if(targets.length===1) selectionTarget=targets[0];
     if(!targets.length) return {error:'В этом фрагменте нет обычного текста для раскрашивания.'};
     // Reject crossing a pre-existing annotation boundary, rather than emit
     // unbalanced brackets. Whole annotations and nested selections are safe.
@@ -184,6 +186,9 @@ function transformNoteColor(source, start, length, style) {
   const before = edits.filter(e => e.b<=start && e.a<start).reduce((n,e)=>n+e.text.length-(e.b-e.a),0);
   const selected = Math.max(0, length + edits.filter(e=>e.a>=start && e.b<=end).reduce((n,e)=>n+e.text.length-(e.b-e.a),0));
   // Preserve the ordinary single-fragment selection for applying another style.
-  const single = style!=='clear' && !source.slice(start,end).includes('\n');
-  return {text,start:start+before+(single?1:0),length:single?length:Math.min(selected,text.length-start-before)};
+  if(style!=='clear' && selectionTarget) {
+    const shift=edits.filter(e=>e.b<=selectionTarget.a && e.a<selectionTarget.a).reduce((n,e)=>n+e.text.length-(e.b-e.a),0);
+    return {text,start:selectionTarget.a+shift+1,length:selectionTarget.b-selectionTarget.a};
+  }
+  return {text,start:start+before,length:Math.min(selected,text.length-start-before)};
 }
