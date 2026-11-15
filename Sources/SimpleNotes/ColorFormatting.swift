@@ -58,7 +58,7 @@ extension NotesApp {
       return
     }
     var range = original
-    // Keep block heading markers outside the inline color annotation.
+    // Keep heading, list, task and quote markers outside the inline color annotation.
     // A line selected with its final newline should not put the closing marker
     // on the following line.
     if style != "clear" {
@@ -68,7 +68,7 @@ extension NotesApp {
       let line = source.lineRange(for: NSRange(location: range.location, length: 0))
       if line.location == range.location {
         let candidate = source.substring(with: range) as NSString
-        let heading = try! NSRegularExpression(pattern: "^ {0,3}#{1,6}[ \t]+")
+        let heading = try! NSRegularExpression(pattern: #"^ {0,3}(?:>[ \t]*)*(?:(?:[-+*]|[0-9]{1,9}[.)])[ \t]+(?:\[[ xX]\][ \t]+)?)?(?:#{1,6}[ \t]+)?"#)
         if let prefix = heading.firstMatch(in: candidate as String, range: NSRange(location: 0, length: candidate.length)) {
           range.location += prefix.range.length
           range.length -= prefix.range.length
@@ -77,6 +77,21 @@ extension NotesApp {
       guard range.length > 0 else { return }
     }
     var selected = source.substring(with: range)
+    if style != "clear" {
+      var fence: (Character, Int)?
+      for line in source.substring(to: range.location).components(separatedBy: "\n").dropLast() {
+        guard let match = line.range(of: #"^ {0,3}(`{3,}|~{3,})"#, options: .regularExpression) else { continue }
+        let marker = line[match].trimmingCharacters(in: .whitespaces)
+        if let active = fence {
+          if marker.first == active.0, marker.count >= active.1,
+            line[match.upperBound...].trimmingCharacters(in: .whitespaces).isEmpty { fence = nil }
+        } else { fence = (marker.first!, marker.count) }
+      }
+      if fence != nil || selected.range(of: #"\n[ \t]*\n|(?m)^ {0,3}(?:`{3,}|~{3,})"#, options: .regularExpression) != nil {
+        showError("Выдели текст внутри одного абзаца. Цвет целого блока кода или нескольких абзацев пока не поддерживается.")
+        return
+      }
+    }
     let pattern = "^\\{(?:topic|definition|important|example|(?:text|bg)-(?:orange|blue|green|yellow|pink|purple))\\}"
     // Changing a style replaces the same kind of surrounding annotation;
     // text and background can be combined by nesting.

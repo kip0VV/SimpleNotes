@@ -32,3 +32,6 @@ assert(!md.render('```\n[# Пример кода]{topic}\n```').includes('<h1>')
 assert(!md.render('    [# Пример кода]{topic}').includes('<h1>'));
 assert(!md.render('[# Неизвестный]{unknown}').includes('<h1>'));
 console.log('PASS: colored headings h1–h6, existing wrapped headings, paragraphs, lists, quotes and literal code');
+
+for(const [source, tag] of [['[*курсив*]{topic}','em'],['[`код`]{topic}','code'],['[[ссылка](https://example.com)]{text-orange}','a'],['- [пункт]{topic}','li'],['1. [пункт]{topic}','li'],['> [цитата]{topic}','blockquote'],['| A |\n|---|\n| [ячейка]{topic} |','td']]) { const html=md.render(source); assert(html.includes('<'+tag),source);assert(html.includes('note-color'),source); }
+console.log('PASS: colored italic, inline code, links, lists, quotes and table cells');

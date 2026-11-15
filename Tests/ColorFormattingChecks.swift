@@ -20,6 +20,11 @@ func runColorFormattingChecks(notes: NotesApp) {
   precondition(notes.editor.string == "## [**Заголовок** и $x^2$]{topic}\n\nДальше текст", "Heading marker and trailing newline stay outside color")
   notes.applyNoteColor("clear", range: notes.editor.selectedRange())
   precondition(notes.editor.string == "## **Заголовок** и $x^2$\n\nДальше текст")
+  for (source, expected) in [("- **Пункт**", "- [**Пункт**]{topic}"), ("1. Пункт", "1. [Пункт]{topic}"), ("> Цитата", "> [Цитата]{topic}"), ("- [ ] Задача", "- [ ] [Задача]{topic}"), ("> ## Заголовок", "> ## [Заголовок]{topic}")] {
+    notes.editor.string = source
+    notes.applyNoteColor("topic", range: NSRange(location: 0, length: (source as NSString).length))
+    precondition(notes.editor.string == expected, "Structural Markdown stays outside color: \(source)")
+  }
   notes.defaults.set("matteOrange", forKey: "appearance")
   notes.applyTheme()
   precondition(notes.isCustomTheme && !notes.isGraphite)

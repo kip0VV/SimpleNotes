@@ -4,3 +4,5 @@
 .note-bg-orange{background:var(--mark-orange)}.note-bg-blue{background:var(--mark-blue)}.note-bg-green{background:var(--mark-green)}.note-bg-yellow{background:var(--mark-yellow)}.note-bg-pink{background:var(--mark-pink)}.note-bg-purple{background:var(--mark-purple)}
 .note-topic{color:var(--ink-orange);font-weight:600}.note-definition{background:var(--mark-blue)}.note-important{background:var(--mark-yellow)}.note-example{color:var(--ink-green)}
 .note-color{border-radius:.15em;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+
+.note-topic a,.note-example a,.note-text-orange a,.note-text-blue a,.note-text-green a,.note-text-yellow a,.note-text-pink a,.note-text-purple a{color:inherit}
