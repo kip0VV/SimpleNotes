@@ -89,6 +89,16 @@ extension NotesApp {
             tokens[i].attrJoin('class','task-item');
           }
           document.getElementById('body').innerHTML=parser.renderer.render(tokens,parser.options,{});
+          document.querySelectorAll('#body a[href^="#"]').forEach(link=>{
+            link.addEventListener('click',event=>{
+              event.preventDefault();
+              let id;
+              try { id=decodeURIComponent(link.getAttribute('href').slice(1)).normalize('NFC'); }
+              catch (_) { return; }
+              const target=document.getElementById(id);
+              if(target)target.scrollIntoView({block:'start'});
+            });
+          });
           document.querySelectorAll('input[data-line]').forEach(input=>{
             input.setAttribute('aria-label',input.parentElement.textContent.trim());
             input.addEventListener('change',()=>{
@@ -157,7 +167,7 @@ extension NotesApp {
       decisionHandler(.allow)
       return
     }
-    if url.absoluteString == "about:blank" {
+    if (url.absoluteString == "about:blank" || (url.scheme == "about" && url.path == "blank" && url.fragment != nil)) {
       decisionHandler(.allow)
       return
     }

@@ -8,6 +8,7 @@ func runNoteFindChecks(notes: NotesApp) {
   notes.dirty = false
   notes.noteFindField.stringValue = "текст"
   notes.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: notes.noteFindField))
+  RunLoop.current.run(until: Date().addingTimeInterval(0.2))
   precondition(notes.noteFindCount == 3 && notes.noteFindCounter.stringValue == "1/3")
   precondition(!notes.dirty && notes.editor.string == source, "Find does not modify note or dirty state")
   notes.nextNoteMatch()

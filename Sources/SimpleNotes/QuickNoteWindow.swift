@@ -85,11 +85,11 @@ extension NotesApp {
     }
     quickStatus.stringValue = "Сохранение…"
     quickSaveTimer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: false) { [weak self] _ in
-      self?.flushQuickSave()
+      self?.flushQuickSave(asynchronously: true)
     }
   }
 
-  func flushQuickSave() {
+  func flushQuickSave(asynchronously: Bool = false) {
     quickSaveTimer?.invalidate()
     quickSaveTimer = nil
     guard quickMode else { return }
@@ -102,9 +102,11 @@ extension NotesApp {
       return
     }
     let selection = editor.selectedRange()
-    if saveCurrent(preservingExistingFile: !quickTopicChanged) {
-      quickTopicChanged = false
-      quickStatus.stringValue = "✓ Сохранено"
+    if saveCurrent(preservingExistingFile: !quickTopicChanged, asynchronously: asynchronously) {
+      if !asynchronously {
+        quickTopicChanged = false
+        quickStatus.stringValue = "✓ Сохранено"
+      }
     } else {
       quickStatus.stringValue = "Не сохранено · ⌘↩"
     }

@@ -1,5 +1,6 @@
 import Carbon
 import Cocoa
+import JavaScriptCore
 import QuartzCore
 import UserNotifications
 import WebKit
@@ -83,6 +84,16 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   let noteFindNext = NSButton()
   var noteFindIndex = 0
   var noteFindCount = 0
+  lazy var colorTransformContext = Self.makeColorTransformContext()
+  var terminationWaitingForSave = false
+  var saveInProgress = false
+  let saveQueue = DispatchQueue(label: "SimpleNotes.save", qos: .userInitiated)
+  var draftWork: DispatchWorkItem?
+  var noteFindWork: DispatchWorkItem?
+  var indexIssues: [String] = []
+  var findCachedSource = ""
+  var findCachedQuery = ""
+  var findCachedRanges: [NSRange] = []
   var noteFindGeneration = 0
   let settingsButton = NSButton(title: "⋯", target: nil, action: nil)
   var sidebarWidth: NSLayoutConstraint!
@@ -466,13 +477,11 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       return
     }
     guard root != oldRoot else { return }
+    storeLibraryState(at: oldRoot)
+    restoreLibraryState(at: root)
     noteBodyCache.removeAll()
     noteNotifications.removeAllPendingNotificationRequests()
-    defaults.removeObject(forKey: "reminders")
-    for key in [
-      "draftTitle", "draftBody", "draftPath", "draftBaseline", "draftDate", "draftDirty",
-      "recentNotes", "treeOrder", "itemColors", "collapsedFolders", "selectedTopic",
-    ] { defaults.removeObject(forKey: key) }
+    if notificationsEnabled { rescheduleReminders() }
     quickSaveTimer?.invalidate()
     quickSaveTimer = nil
     quickAutomaticTitle = quickMode
@@ -486,7 +495,10 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     editor.string = ""
     editor.undoManager?.removeAllActions()
     searchField.stringValue = ""
-    refreshTopics(select: "")
+    titleField.stringValue = defaults.string(forKey: "draftTitle") ?? ""
+    editor.string = defaults.string(forKey: "draftBody") ?? ""
+    refreshTopics(select: defaults.string(forKey: "selectedTopic") ?? "")
+    restoreEditingState()
     refreshTree()
     seedRecentNotes()
     mode.selectedSegment = 0
@@ -805,7 +817,15 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     defaults.set(selectedTopicPath, forKey: "selectedTopic")
     if currentURL != nil { dirty = true }
   }
+  func scheduleDraftPersistence() {
+    draftWork?.cancel()
+    let work = DispatchWorkItem { [weak self] in self?.persistDraft() }
+    draftWork = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
+  }
   func persistDraft() {
+    draftWork?.cancel()
+    draftWork = nil
     defaults.set(titleField.stringValue, forKey: "draftTitle")
     defaults.set(editor.string, forKey: "draftBody")
     defaults.set(selectedTopicPath, forKey: "selectedTopic")
@@ -816,15 +836,15 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   }
   func textDidChange(_ notification: Notification) {
     dirty = true
-    persistDraft()
+    scheduleDraftPersistence()
     editor.needsDisplay = true
     scheduleQuickSave()
     scheduleMarkdownRender()
-    if !noteFindField.stringValue.isEmpty { updateNoteFind() }
+    if !noteFindField.stringValue.isEmpty { scheduleNoteFind() }
   }
   func controlTextDidChange(_ notification: Notification) {
     if notification.object as? NSSearchField === noteFindField {
-      updateNoteFind(reset: true, scroll: true)
+      scheduleNoteFind(reset: true, scroll: true)
       return
     }
     if notification.object as? NSSearchField === searchField {
@@ -835,13 +855,20 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       return
     }
     dirty = true
-    persistDraft()
+    scheduleDraftPersistence()
     scheduleMarkdownRender()
   }
   func windowShouldClose(_ sender: NSWindow) -> Bool {
+    guard !saveInProgress else { return false }
     if quickMode { flushQuickSave() }
     persistDraft()
     return true
+  }
+  func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    guard saveInProgress else { return .terminateNow }
+    persistDraft()
+    terminationWaitingForSave = true
+    return .terminateLater
   }
   func applicationWillTerminate(_ notification: Notification) {
     if quickMode { flushQuickSave() }
@@ -914,8 +941,9 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     NSWorkspace.shared.open(root.appendingPathComponent(topic))
   }
 
-  @objc func saveNote() { _ = saveCurrent() }
-  @discardableResult func saveCurrent(preservingExistingFile: Bool = false) -> Bool {
+  @objc func saveNote() { _ = saveCurrent(asynchronously: true) }
+  @discardableResult func saveCurrent(preservingExistingFile: Bool = false, asynchronously: Bool = false) -> Bool {
+    guard !saveInProgress else { status.stringValue = "Дождись завершения сохранения…"; return false }
     let body = editor.string
     let previousTitle = titleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
     var title = previousTitle
@@ -949,68 +977,96 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     let content =
       preservePlainText
       ? body : "\(title)\n\(date)\nТема — \(topic.isEmpty ? "Без папки" : topic)\n\n\(body)"
-    do {
-      if let oldURL = currentURL {
-        guard try String(contentsOf: oldURL, encoding: .utf8) == loadedContent else {
-          showError(
-            "Файл изменён вне приложения. Скопируй свой текст и открой заметку заново, чтобы сохранить обе версии."
-          )
-          return false
+    let oldURL = currentURL, baseline = loadedContent, directory = root
+    let originalTitle = titleField.stringValue
+    let write = { () throws -> URL in
+      if let oldURL = oldURL {
+        guard try String(contentsOf: oldURL, encoding: .utf8) == baseline else {
+          throw SafeNoteWrite.conflict(oldURL)
         }
       }
-      let folder = existingURL?.deletingLastPathComponent() ?? root.appendingPathComponent(topic)
+      let folder = existingURL?.deletingLastPathComponent() ?? directory.appendingPathComponent(topic)
       try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-      let fileExtension = currentURL?.pathExtension ?? "md"
+      let fileExtension = oldURL?.pathExtension ?? "md"
       var suffix = 1
       var destination: URL
       if let existingURL = existingURL {
-        try Data(content.utf8).write(to: existingURL, options: .atomic)
+        try SafeNoteWrite.replace(existingURL, expected: baseline, content: content, root: directory)
         destination = existingURL
       } else {
         while true {
           let filename = suffix == 1
             ? "\(safeTitle).\(fileExtension)" : "\(safeTitle) (\(suffix)).\(fileExtension)"
           destination = folder.appendingPathComponent(filename)
-          if let current = currentURL,
+          if let current = oldURL,
             destination.standardizedFileURL.resolvingSymlinksInPath()
               == current.standardizedFileURL.resolvingSymlinksInPath() {
             destination = current
-            try Data(content.utf8).write(to: destination, options: .atomic)
+            try SafeNoteWrite.replace(destination, expected: baseline, content: content, root: directory)
             break
           }
           do {
-            try Data(content.utf8).write(to: destination, options: .withoutOverwriting)
+            try SafeNoteWrite.publish(content, to: destination)
             break
           } catch let error as NSError
-            where error.domain == NSCocoaErrorDomain && error.code == NSFileWriteFileExistsError
+            where (error.domain == NSCocoaErrorDomain && error.code == NSFileWriteFileExistsError) || (error.domain == NSPOSIXErrorDomain && error.code == Int(EEXIST))
           { suffix += 1 }
         }
       }
-      if let old = currentURL, old != destination {
+      if let old = oldURL, old != destination {
         // Keep the original until the complete replacement has been written.
-        try FileManager.default.removeItem(at: old)
+        try SafeNoteWrite.archive(old, expected: baseline, root: directory)
       }
-      if let old = currentURL { remapColors(from: old, to: destination) }
-      currentURL = destination
-      recordRecent(destination)
-      loadedContent = content
-      noteDate = date
-      titleField.stringValue = title
-      dirty = false
-      if quickMode { quickStatus.stringValue = "✓ Сохранено" }
-      persistDraft()
-      noteBodyCache.removeValue(forKey: destination)
-      savedNoteToReveal = destination
-      refreshTree()
-      status.stringValue =
-        "Сохранено в «\(topic.isEmpty ? "Без папки" : topic)»"
-        + (showDates && !date.isEmpty ? " · \(date)" : "")
-      if mode.selectedSegment == 1 { renderMarkdown() }
-      return true
-    } catch {
-      showError(error.localizedDescription)
-      return false
+      return destination
     }
+    func finish(_ result: Result<URL, Error>) -> Bool {
+      defer {
+        if terminationWaitingForSave {
+          terminationWaitingForSave = false
+          persistDraft()
+          NSApp.reply(toApplicationShouldTerminate: true)
+        }
+      }
+      self.saveInProgress = false
+      guard self.root == directory, self.currentURL == oldURL else { return false }
+      switch result {
+      case .failure(let error):
+        self.showError(error.localizedDescription)
+        return false
+      case .success(let destination):
+        if let old = oldURL { remapColors(from: old, to: destination) }
+        currentURL = destination
+        recordRecent(destination)
+        loadedContent = content
+        noteDate = date
+        let unchanged = editor.string == body && titleField.stringValue == originalTitle && selectedTopicPath == topic
+        if titleField.stringValue == originalTitle { titleField.stringValue = title }
+        dirty = !unchanged
+        if quickMode {
+          quickStatus.stringValue = dirty ? "Сохранение…" : "✓ Сохранено"
+          if dirty { scheduleQuickSave() } else { quickTopicChanged = false }
+        }
+        persistDraft()
+        noteBodyCache.removeValue(forKey: destination)
+        savedNoteToReveal = destination
+        refreshTree()
+        status.stringValue =
+          "Сохранено в «\(topic.isEmpty ? "Без папки" : topic)»"
+          + (showDates && !date.isEmpty ? " · \(date)" : "")
+        if mode.selectedSegment == 1 { renderMarkdown() }
+        return true
+      }
+    }
+    if asynchronously {
+      saveInProgress = true
+      status.stringValue = "Сохранение…"
+      saveQueue.async {
+        let result = Result { try write() }
+        DispatchQueue.main.async { _ = finish(result) }
+      }
+      return true
+    }
+    return finish(Result { try write() })
   }
 
   func buildSidebar(_ sidebar: NSView) {
@@ -1138,16 +1194,20 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     let order = customOrder
     let cached = noteBodyCache
     indexQueue.cancelAllOperations()
-    indexQueue.addOperation { [weak self] in
+    let operation = BlockOperation()
+    operation.addExecutionBlock { [weak self, weak operation] in
       var scanner = NoteIndexScanner(root: directory, order: order, cache: cached)
+      scanner.isCancelled = { operation?.isCancelled ?? true }
       let result = Result { try scanner.scan() }
       let updatedCache = scanner.cache
+      let issues = scanner.issues
       DispatchQueue.main.async { [weak self] in
         guard let self = self, self.indexGeneration == generation, self.root == directory else {
           return
         }
         switch result {
         case .success(let notes):
+          self.indexIssues = issues
           self.allNotes = notes
           self.noteBodyCache = updatedCache
           self.applySearch()
@@ -1168,7 +1228,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
               }
             }
           }
-          self.finishManualRefresh(generation: generation, directory: directory, succeeded: true)
+          self.finishManualRefresh(generation: generation, directory: directory, succeeded: issues.isEmpty)
         case .failure(let error):
           self.loadingTree = false
           self.finishManualRefresh(generation: generation, directory: directory, succeeded: false)
@@ -1176,6 +1236,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
         }
       }
     }
+    indexQueue.addOperation(operation)
   }
   func applySearch() {
     let selectedURLs = outline.selectedRowIndexes.compactMap {
@@ -1223,6 +1284,10 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     tree = filter(allNotes)
     searchStatus.stringValue =
       query.isEmpty ? "" : (count == 0 ? "Ничего не найдено" : "Найдено заметок — \(count)")
+    if !indexIssues.isEmpty {
+      searchStatus.stringValue += " · Не прочитано: \(indexIssues.count)"
+      searchStatus.toolTip = indexIssues.joined(separator: "\n")
+    } else { searchStatus.toolTip = nil }
     loadingTree = true
     outline.reloadData()
     outline.expandItem(nil, expandChildren: true)
@@ -1921,7 +1986,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
         try FileManager.default.copyItem(at: source, to: target)
         break
       } catch let error as NSError
-        where error.domain == NSCocoaErrorDomain && error.code == NSFileWriteFileExistsError
+        where (error.domain == NSCocoaErrorDomain && error.code == NSFileWriteFileExistsError) || (error.domain == NSPOSIXErrorDomain && error.code == Int(EEXIST))
       { number += 1 }
     }
     do {
@@ -2012,6 +2077,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     applySearch()
   }
   func canLeaveNote() -> Bool {
+    guard !saveInProgress else { status.stringValue = "Дождись завершения сохранения…"; return false }
     guard dirty else { return true }
     let alert = NSAlert()
     alert.messageText = "Сохранить изменения?"

@@ -1,6 +1,18 @@
 import Cocoa
+import JavaScriptCore
 
 extension NotesApp {
+  static func makeColorTransformContext() -> JSContext? {
+    guard let context = JSContext() else { return nil }
+    for name in ["markdown-it.min", "markdown-math", "note-colors"] {
+      guard let url = Bundle.main.url(forResource: name, withExtension: "js"),
+        let script = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+      context.evaluateScript(script)
+      if context.exception != nil { return nil }
+    }
+    return context
+  }
+
   func makeColorControls() -> [NSView] {
     let control = NSPopUpButton(frame: .zero, pullsDown: true)
     control.addItem(withTitle: "Раскрасить")
@@ -57,69 +69,29 @@ extension NotesApp {
       showError("Сначала выдели слова, которые нужно раскрасить.")
       return
     }
-    var range = original
-    // Keep heading, list, task and quote markers outside the inline color annotation.
-    // A line selected with its final newline should not put the closing marker
-    // on the following line.
-    if style != "clear" {
-      while range.length > 0 && ["\n", "\r"].contains(source.substring(with: NSRange(location: NSMaxRange(range) - 1, length: 1))) {
-        range.length -= 1
-      }
-      let line = source.lineRange(for: NSRange(location: range.location, length: 0))
-      if line.location == range.location {
-        let candidate = source.substring(with: range) as NSString
-        let heading = try! NSRegularExpression(pattern: #"^ {0,3}(?:>[ \t]*)*(?:(?:[-+*]|[0-9]{1,9}[.)])[ \t]+(?:\[[ xX]\][ \t]+)?)?(?:#{1,6}[ \t]+)?"#)
-        if let prefix = heading.firstMatch(in: candidate as String, range: NSRange(location: 0, length: candidate.length)) {
-          range.location += prefix.range.length
-          range.length -= prefix.range.length
-        }
-      }
-      guard range.length > 0 else { return }
+    guard let context = colorTransformContext else {
+      showError("Не удалось загрузить обработчик Markdown.")
+      return
     }
-    var selected = source.substring(with: range)
-    if style != "clear" {
-      var fence: (Character, Int)?
-      for line in source.substring(to: range.location).components(separatedBy: "\n").dropLast() {
-        guard let match = line.range(of: #"^ {0,3}(`{3,}|~{3,})"#, options: .regularExpression) else { continue }
-        let marker = line[match].trimmingCharacters(in: .whitespaces)
-        if let active = fence {
-          if marker.first == active.0, marker.count >= active.1,
-            line[match.upperBound...].trimmingCharacters(in: .whitespaces).isEmpty { fence = nil }
-        } else { fence = (marker.first!, marker.count) }
-      }
-      if fence != nil || selected.range(of: #"\n[ \t]*\n|(?m)^ {0,3}(?:`{3,}|~{3,})"#, options: .regularExpression) != nil {
-        showError("Выдели текст внутри одного абзаца. Цвет целого блока кода или нескольких абзацев пока не поддерживается.")
-        return
-      }
+    guard let result = context.objectForKeyedSubscript("transformNoteColor")?
+      .call(withArguments: [source as String, original.location, original.length, style])?.toDictionary() else {
+      showError("Не удалось обработать выделение.")
+      return
     }
-    let pattern = "^\\{(?:topic|definition|important|example|(?:text|bg)-(?:orange|blue|green|yellow|pink|purple))\\}"
-    // Changing a style replaces the same kind of surrounding annotation;
-    // text and background can be combined by nesting.
-    while range.location > 0, source.substring(with: NSRange(location: range.location - 1, length: 1)) == "[",
-      NSMaxRange(range) < source.length,
-      source.substring(with: NSRange(location: NSMaxRange(range), length: 1)) == "]" {
-      let tail = source.substring(from: NSMaxRange(range) + 1)
-      guard let suffix = tail.range(of: pattern, options: .regularExpression) else { break }
-      let marker = String(tail[suffix])
-      let sameKind = style == "clear" || (style.hasPrefix("text-") && marker.hasPrefix("{text-"))
-        || (style.hasPrefix("bg-") && marker.hasPrefix("{bg-"))
-        || (!["text-", "bg-"].contains(where: { style.hasPrefix($0) }) && !marker.hasPrefix("{text-") && !marker.hasPrefix("{bg-"))
-      guard sameKind else { break }
-      range = NSRange(location: range.location - 1, length: range.length + 2 + (marker as NSString).length)
-    }
-    if style == "clear" {
-      let regex = try! NSRegularExpression(pattern: "\\[([^\\[\\]]+)\\]\\{(?:topic|definition|important|example|(?:text|bg)-(?:orange|blue|green|yellow|pink|purple))\\}")
-      while true {
-        let cleaned = regex.stringByReplacingMatches(in: selected, range: NSRange(location: 0, length: (selected as NSString).length), withTemplate: "$1")
-        if cleaned == selected { break }
-        selected = cleaned
-      }
-    }
+    if let error = result["error"] as? String { showError(error); return }
+    guard let replacement = result["text"] as? String, replacement != source as String,
+      let start = result["start"] as? Int, let length = result["length"] as? Int else { return }
     mode.selectedSegment = 0
     changeMode()
-    let replacement = style == "clear" ? selected : "[\(selected)]{\(style)}"
-    editor.insertText(replacement, replacementRange: range)
-    editor.setSelectedRange(NSRange(location: range.location + (style == "clear" ? 0 : 1), length: (selected as NSString).length))
+    let oldUnits = Array((source as String).utf16), newUnits = Array(replacement.utf16)
+    var prefix = 0, suffix = 0
+    while prefix < min(oldUnits.count, newUnits.count), oldUnits[prefix] == newUnits[prefix] { prefix += 1 }
+    while suffix < min(oldUnits.count, newUnits.count) - prefix,
+      oldUnits[oldUnits.count - suffix - 1] == newUnits[newUnits.count - suffix - 1] { suffix += 1 }
+    let changed = NSRange(location: prefix, length: oldUnits.count - prefix - suffix)
+    let fragment = (replacement as NSString).substring(with: NSRange(location: prefix, length: newUnits.count - prefix - suffix))
+    editor.insertText(fragment, replacementRange: changed)
+    editor.setSelectedRange(NSRange(location: start, length: min(length, (replacement as NSString).length - start)))
     editor.scrollRangeToVisible(editor.selectedRange())
     window.makeFirstResponder(editor)
   }

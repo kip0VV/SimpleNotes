@@ -64,7 +64,7 @@ extension NotesApp {
     editor.setSelectedRange(selection)
     editor.undoManager?.setActionName("Отметить задачу")
     if !wasDirty && currentURL != nil {
-      _ = saveCurrent(preservingExistingFile: true)
+      _ = saveCurrent(preservingExistingFile: true, asynchronously: true)
     } else {
       renderMarkdown()
       status.stringValue = "Задача изменена · сохрани заметку"

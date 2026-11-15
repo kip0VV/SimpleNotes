@@ -28,46 +28,66 @@ struct NoteIndexScanner {
   let order: [String: [String]]
   var cache: [URL: CachedNoteBody]
   var visited: Set<URL> = []
+  var isCancelled: () -> Bool = { false }
+  var issues: [String] = []
 
   mutating func scan() throws -> [NoteNode] {
     visited.removeAll(keepingCapacity: true)
+    issues.removeAll(keepingCapacity: true)
     let result = try nodes(in: root)
     cache = cache.filter { visited.contains($0.key) }
     return result
   }
   mutating func nodes(in folder: URL) throws -> [NoteNode] {
-    let entries = try orderedNoteEntries(in: folder, root: root, order: order)
+    if isCancelled() { throw CancellationError() }
+    let entries: [URL]
+    do { entries = try orderedNoteEntries(in: folder, root: root, order: order) }
+    catch {
+      if folder == root { throw error }
+      issues.append("\(folder.lastPathComponent): \(error.localizedDescription)")
+      return []
+    }
     return try entries.compactMap { url in
-      let values = try url.resourceValues(forKeys: [
-        .isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey,
-        .attributeModificationDateKey, .fileResourceIdentifierKey, .generationIdentifierKey,
-      ])
-      if values.isDirectory == true {
-        return NoteNode(url: url, children: try nodes(in: url), isFolder: true)
+      if isCancelled() { throw CancellationError() }
+      do {
+        let values = try url.resourceValues(forKeys: [
+          .isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey,
+          .attributeModificationDateKey, .fileResourceIdentifierKey, .generationIdentifierKey,
+        ])
+        if values.isDirectory == true {
+          return NoteNode(url: url, children: try nodes(in: url), isFolder: true)
+        }
+        visited.insert(url)
+        let node = NoteNode(url: url)
+        let identity = values.fileResourceIdentifier as? NSObject
+        let generation = values.generationIdentifier as? NSObject
+        if values.contentModificationDate != nil, values.fileSize != nil, identity != nil,
+          generation != nil || values.attributeModificationDate != nil,
+          let cached = cache[url], cached.modified == values.contentModificationDate,
+          cached.size == values.fileSize, cached.identity == identity,
+          cached.generation == generation,
+          generation != nil || cached.changed == values.attributeModificationDate
+        {
+          node.searchBody = cached.body
+        } else {
+          let content = try String(contentsOf: url, encoding: .utf8)
+          let lines = content.components(separatedBy: "\n")
+          node.searchBody =
+            NoteMetadata.hasHeader(lines)
+            ? lines.dropFirst(lines[3].isEmpty ? 4 : 3).joined(separator: "\n") : content
+          cache[url] = CachedNoteBody(
+            modified: values.contentModificationDate,
+            size: values.fileSize, changed: values.attributeModificationDate, identity: identity,
+            generation: generation, body: node.searchBody)
+        }
+        return node
+      } catch is CancellationError { throw CancellationError() }
+      catch {
+        cache.removeValue(forKey: url)
+        issues.append("\(url.lastPathComponent): \(error.localizedDescription)")
+        // Keep unreadable notes visible by name, but never search stale content.
+        return NoteNode(url: url)
       }
-      visited.insert(url)
-      let node = NoteNode(url: url)
-      let identity = values.fileResourceIdentifier as? NSObject
-      let generation = values.generationIdentifier as? NSObject
-      if values.contentModificationDate != nil, values.fileSize != nil, identity != nil,
-        generation != nil || values.attributeModificationDate != nil,
-        let cached = cache[url], cached.modified == values.contentModificationDate,
-        cached.size == values.fileSize, cached.identity == identity,
-        cached.generation == generation,
-        generation != nil || cached.changed == values.attributeModificationDate
-      {
-        node.searchBody = cached.body
-      } else if let content = try? String(contentsOf: url, encoding: .utf8) {
-        let lines = content.components(separatedBy: "\n")
-        node.searchBody =
-          NoteMetadata.hasHeader(lines)
-          ? lines.dropFirst(lines[3].isEmpty ? 4 : 3).joined(separator: "\n") : content
-        cache[url] = CachedNoteBody(
-          modified: values.contentModificationDate,
-          size: values.fileSize, changed: values.attributeModificationDate, identity: identity,
-          generation: generation, body: node.searchBody)
-      }
-      return node
     }
   }
 }
@@ -83,8 +103,10 @@ func orderedNoteEntries(in folder: URL, root: URL, order: [String: [String]]) th
   let saved = order[String(folder.path.dropFirst(root.path.count + 1))] ?? []
   let positions = Dictionary(
     saved.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { first, _ in first })
-  return try entries.filter { url in
-    let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+  return entries.filter { url in
+    guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]) else {
+      return ["txt", "md", "markdown"].contains(url.pathExtension.lowercased())
+    }
     return values.isSymbolicLink != true && url.pathExtension.lowercased() != "app"
       && (values.isDirectory == true
         || ["txt", "md", "markdown"].contains(url.pathExtension.lowercased()))

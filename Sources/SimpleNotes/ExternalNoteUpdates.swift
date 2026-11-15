@@ -81,6 +81,7 @@ extension NotesApp {
   }
 
   func refreshOpenNoteFromDisk(force: Bool = false) {
+    guard !saveInProgress else { return }
     if dirty && editingMatchesLoadedNote() {
       dirty = false
     }
@@ -112,7 +113,7 @@ extension NotesApp {
           self.dirty = false
         }
         
-        guard !self.dirty, !self.quickMode, self.currentURL?.path == url.path,
+        guard !self.saveInProgress, !self.dirty, !self.quickMode, self.currentURL?.path == url.path,
           self.loadedContent == baseline, let (stamp, content) = result else { return }
         self.externalObservedPath = url.path
         self.externalObservedStamp = stamp

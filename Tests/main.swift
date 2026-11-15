@@ -11,6 +11,7 @@ let testDomain = Bundle.main.bundleIdentifier!
 UserDefaults.standard.removePersistentDomain(forName: testDomain)
 defer { UserDefaults.standard.removePersistentDomain(forName: testDomain) }
 runLaunchChecks()
+try runAuditFixChecks()
 let notes = NotesApp()
 notes.startupComplete = true
 notes.window = NSWindow(
@@ -135,6 +136,9 @@ notes.topics.removeAllItems()
 notes.topics.addItem(withTitle: "Без папки")
 notes.topics.lastItem?.representedObject = ""
 notes.toggleMarkdownTask(line: 2, checked: true)
+let taskSaveDeadline = Date().addingTimeInterval(5)
+while notes.saveInProgress && Date() < taskSaveDeadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+precondition(!notes.saveInProgress)
 precondition(
   try! String(contentsOf: plainFile, encoding: .utf8)
     == plainText.replacingOccurrences(of: "[ ]", with: "[x]"))

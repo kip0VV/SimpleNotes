@@ -50,5 +50,11 @@ func runColorRenderChecks() {
     _ = js("window.findInNote('',0,false)")
     precondition(js("document.querySelectorAll('.note-color').length") as? Int == 13, "Search clearing preserves permanent colors")
   }
+  notes.editor.string = "[Перейти](#раздел)\n\n" + String(repeating: "Абзац\n\n", count: 40) + "## [Раздел]{topic}"
+  notes.renderMarkdown()
+  wait { js("document.querySelector('#body h2')?.id") as? String == "раздел" }
+  _ = js("document.querySelector('#body a').click()")
+  wait { (js("window.scrollY") as? Double ?? 0) > 100 }
+  precondition(js("document.querySelector('#body h2').textContent") as? String == "Раздел")
   print("PASS: actual WebKit color styles, nested foreground/background, formulas, search clearing, live theme changes including root background")
 }

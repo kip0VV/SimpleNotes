@@ -72,8 +72,9 @@ func runFeatureChecks(notes: NotesApp, fixture: URL) throws {
          "Draft tracks external-change baseline")
   notes.editor.string += "\nЧерновик"
   notes.textDidChange(Notification(name: NSText.didChangeNotification))
+  RunLoop.current.run(until: Date().addingTimeInterval(0.5))
   expect(notes.defaults.bool(forKey: "draftDirty") && notes.defaults.string(forKey: "draftBody") == notes.editor.string,
-         "Draft persists edit immediately")
+         "Draft persists after the typing debounce")
   notes.currentURL = nil
   notes.loadedContent = nil
   notes.dirty = false

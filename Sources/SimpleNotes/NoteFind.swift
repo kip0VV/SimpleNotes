@@ -119,7 +119,7 @@ extension NotesApp {
   }
 
   @objc func noteFindChanged() {
-    updateNoteFind(reset: true, scroll: true)
+    scheduleNoteFind(reset: true, scroll: true)
   }
 
   @objc func focusNoteFind() {
@@ -129,7 +129,18 @@ extension NotesApp {
     noteFindField.selectText(nil)
   }
 
+  func scheduleNoteFind(reset: Bool = false, scroll: Bool = false) {
+    noteFindGeneration += 1
+    noteFindWork?.cancel()
+    let work = DispatchWorkItem { [weak self] in self?.updateNoteFind(reset: reset, scroll: scroll) }
+    noteFindWork = work
+    if noteFindField.stringValue.isEmpty { updateNoteFind(reset: reset, scroll: scroll) }
+    else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work) }
+  }
+
   func updateNoteFind(reset: Bool = false, scroll: Bool = false) {
+    noteFindWork?.cancel()
+    noteFindWork = nil
     noteFindGeneration += 1
     let generation = noteFindGeneration
     let query = noteFindExpanded ? noteFindField.stringValue : ""
@@ -157,23 +168,47 @@ extension NotesApp {
     let source = editor.string as NSString
     let words = query.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
     let pattern = words.map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "\\s+")
-    let ranges: [NSRange]
-    if !pattern.isEmpty, let expression = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
-      ranges = expression.matches(in: editor.string, range: NSRange(location: 0, length: source.length)).map(\.range)
-    } else {
-      ranges = []
+    if findCachedSource == source as String, findCachedQuery == query {
+      applyEditorFindRanges(findCachedRanges, scroll: scroll, generation: generation)
+      return
     }
-    let whole = NSRange(location: 0, length: source.length)
+    let text = source as String
+    let compute = { () -> [NSRange] in
+      guard !pattern.isEmpty, let expression = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return [] }
+      return expression.matches(in: text, range: NSRange(location: 0, length: source.length)).map(\.range)
+    }
+    let finish: ([NSRange]) -> Void = { [weak self] ranges in
+      guard let self = self, self.noteFindGeneration == generation else { return }
+      self.findCachedSource = text
+      self.findCachedQuery = query
+      self.findCachedRanges = ranges
+      self.applyEditorFindRanges(ranges, scroll: scroll, generation: generation)
+    }
+    if source.length > 100_000 {
+      DispatchQueue.global(qos: .userInitiated).async {
+        let ranges = compute()
+        DispatchQueue.main.async { finish(ranges) }
+      }
+    } else { finish(compute()) }
+  }
+
+  func applyEditorFindRanges(_ ranges: [NSRange], scroll: Bool, generation: Int) {
+    let whole = NSRange(location: 0, length: (editor.string as NSString).length)
     editor.layoutManager?.removeTemporaryAttribute(.backgroundColor, forCharacterRange: whole)
     noteFindIndex = ranges.isEmpty ? 0 : ((noteFindIndex % ranges.count) + ranges.count) % ranges.count
-    for (index, range) in ranges.enumerated() {
-      editor.layoutManager?.addTemporaryAttribute(.backgroundColor,
-        value: (index == noteFindIndex ? NSColor.systemOrange : NSColor.systemYellow).withAlphaComponent(0.35),
-        forCharacterRange: range)
+    let active = noteFindIndex
+    func paint(_ start: Int) {
+      guard generation == noteFindGeneration else { return }
+      let end = min(start + 1000, ranges.count)
+      for index in start..<end {
+        editor.layoutManager?.addTemporaryAttribute(.backgroundColor,
+          value: (index == active ? NSColor.systemOrange : NSColor.systemYellow).withAlphaComponent(0.35),
+          forCharacterRange: ranges[index])
+      }
+      if end < ranges.count { DispatchQueue.main.async { paint(end) } }
     }
-    if scroll, !ranges.isEmpty {
-      editor.scrollRangeToVisible(ranges[noteFindIndex])
-    }
+    paint(0)
+    if scroll, !ranges.isEmpty { editor.scrollRangeToVisible(ranges[noteFindIndex]) }
     showNoteFindCount(ranges.count)
   }
 

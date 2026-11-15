@@ -20,14 +20,14 @@ for (let level=1;level<=6;level++) {
  const marker='#'.repeat(level);
  for(const source of [`[${marker} **Тема** и $x^2$]{topic}`, `${marker} [**Тема** и $x^2$]{topic}`]) {
   const html=md.render(source);
-  assert(html.startsWith(`<h${level}>`),source);
+  assert(html.startsWith(`<h${level} id="`),source);
   assert(html.includes('<strong>Тема</strong>') && html.includes('class="katex"'));
   assert(html.includes('note-topic') && !html.includes(marker+' Тема'));
  }
 }
-assert(md.render('абзац\n[# Заголовок]{topic}').includes('</p>\n<h1>'));
-assert(md.render('- [# Заголовок]{topic}').includes('<li>\n<h1>'));
-assert(md.render('> [## Заголовок]{definition}').includes('<h2>'));
+assert(md.render('абзац\n[# Заголовок]{topic}').includes('</p>\n<h1 id='));
+assert(md.render('- [# Заголовок]{topic}').includes('<li>\n<h1 id='));
+assert(md.render('> [## Заголовок]{definition}').includes('<h2 id='));
 assert(!md.render('```\n[# Пример кода]{topic}\n```').includes('<h1>'));
 assert(!md.render('    [# Пример кода]{topic}').includes('<h1>'));
 assert(!md.render('[# Неизвестный]{unknown}').includes('<h1>'));
@@ -35,3 +35,26 @@ console.log('PASS: colored headings h1–h6, existing wrapped headings, paragrap
 
 for(const [source, tag] of [['[*курсив*]{topic}','em'],['[`код`]{topic}','code'],['[[ссылка](https://example.com)]{text-orange}','a'],['- [пункт]{topic}','li'],['1. [пункт]{topic}','li'],['> [цитата]{topic}','blockquote'],['| A |\n|---|\n| [ячейка]{topic} |','td']]) { const html=md.render(source); assert(html.includes('<'+tag),source);assert(html.includes('note-color'),source); }
 console.log('PASS: colored italic, inline code, links, lists, quotes and table cells');
+
+const transform = (text,style,a=0,b=text.length)=>ctx.transformNoteColor(text,a,b-a,style);
+for(const [source,expected] of [
+ ['- One\n- Two','- [One]{topic}\n- [Two]{topic}'],
+ ['> ## Heading\n> Text','> ## [Heading]{topic}\n> [Text]{topic}'],
+ ['- [ ] Task','- [ ] [Task]{topic}']
+]) assert.strictEqual(transform(source,'topic').text,expected);
+assert.strictEqual(transform('`[code]{topic}` and [word]{topic}','clear').text,'`[code]{topic}` and word');
+assert.strictEqual(transform('> ```\n> [code]{topic}\n> ```','clear').text,'> ```\n> [code]{topic}\n> ```');
+assert(transform('> ```\n> code\n> ```','topic').error);
+assert.strictEqual(transform('[important word]{topic}','clear',11,15).text,'important word');
+assert.strictEqual(transform('[**bold** and word]{topic}','clear',13,17).text,'**bold** and word');
+assert.strictEqual(transform('[Term]{topic}','definition',1,5).text,'[Term]{definition}');
+assert(md.render('# [Тема]{topic}\n\n# Тема').includes('id="тема-1"'));
+console.log('PASS: parser-aware source edits, nested quoted fences, partial clearing and unique Unicode heading IDs');
+
+assert(transform('**bold**','topic',0,4).error, 'Crossed emphasis boundary must not damage Markdown');
+assert(transform('$x^2$','topic',1,4).error, 'Partial formulas are protected');
+assert.strictEqual(transform('**bold**','topic').text,'[**bold**]{topic}');
+
+assert.strictEqual(transform('[# **Heading**]{topic}','clear',6,10).text,'# **Heading**');
+
+assert.strictEqual(transform('| A | B |\n|---|---|\n| cell | cell |','topic',29,33).text,'| A | B |\n|---|---|\n| cell | [cell]{topic} |');
