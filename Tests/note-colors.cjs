@@ -37,11 +37,7 @@ for(const [source, tag] of [['[*курсив*]{topic}','em'],['[`код`]{topic}
 console.log('PASS: colored italic, inline code, links, lists, quotes and table cells');
 
 const transform = (text,style,a=0,b=text.length)=>ctx.transformNoteColor(text,a,b-a,style);
-for(const [source,expected] of [
- ['- One\n- Two','- [One]{topic}\n- [Two]{topic}'],
- ['> ## Heading\n> Text','> ## [Heading]{topic}\n> [Text]{topic}'],
- ['- [ ] Task','- [ ] [Task]{topic}']
-]) assert.strictEqual(transform(source,'topic').text,expected);
+for(const source of ['- One\n- Two','> ## Heading\n> Text','- [ ] Task']) assert(transform(source,'topic').error);
 assert.strictEqual(transform('`[code]{topic}` and [word]{topic}','clear').text,'`[code]{topic}` and word');
 assert.strictEqual(transform('> ```\n> [code]{topic}\n> ```','clear').text,'> ```\n> [code]{topic}\n> ```');
 assert(transform('> ```\n> code\n> ```','topic').error);
@@ -53,8 +49,16 @@ console.log('PASS: parser-aware source edits, nested quoted fences, partial clea
 
 assert(transform('**bold**','topic',0,4).error, 'Crossed emphasis boundary must not damage Markdown');
 assert(transform('$x^2$','topic',1,4).error, 'Partial formulas are protected');
-assert.strictEqual(transform('**bold**','topic').text,'[**bold**]{topic}');
+assert(transform('**bold**','topic').error);
+assert.strictEqual(transform('*italic*','topic').text,'[*italic*]{topic}');
+assert.strictEqual(transform('## *Heading*','topic').text,'## [*Heading*]{topic}');
 
 assert.strictEqual(transform('[# **Heading**]{topic}','clear',6,10).text,'# **Heading**');
 
-assert.strictEqual(transform('| A | B |\n|---|---|\n| cell | cell |','topic',29,33).text,'| A | B |\n|---|---|\n| cell | [cell]{topic} |');
+for(const source of ['| A | B |\n|---|---|\n| cell | cell |','| A | B |\n|—|—|\n| C | 0 |','$x^2$','`code`','[link](https://example.com)','~~strike~~','![alt](x)']) {
+ const result=transform(source,'topic');
+ assert(result.error && result.text===undefined,source);
+}
+const table='| [A]{topic} | [B]{topic} |\n|---|---|\n| C | 0 |';
+assert.strictEqual(transform(table,'clear').text,'| A | B |\n|---|---|\n| C | 0 |');
+console.log('PASS: restrictive color policy, malformed tables, whole formulas/code, and table color recovery');

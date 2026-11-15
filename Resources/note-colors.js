@@ -123,8 +123,19 @@ function transformNoteColor(source, start, length, style) {
     }
   });
   const tokens = md.parse(source,{});
-  const blocked = tokens.filter(t => ['fence','code_block','html_block','note_math_block'].includes(t.type) && t.map)
+  const blocked = tokens.filter(t => ['fence','code_block','html_block','note_math_block','table_open','bullet_list_open','ordered_list_open','blockquote_open'].includes(t.type) && t.map)
     .map(t => ({a:offsets[t.map[0]],b:offsets[t.map[1]]}));
+  // A deliberately narrow editing policy: text, headings and italic only.
+  // Reject the whole inline block if it contains unsupported formatting, even
+  // when the user selected just its visible text in the preview.
+  const allowedInline = new Set(['text','em_open','em_close','softbreak','hardbreak','note_color_open','note_color_close']);
+  for(const token of tokens) {
+    if(token.type==='inline' && token.map && (token.children||[]).some(t=>!allowedInline.has(t.type)))
+      blocked.push({a:offsets[token.map[0]],b:offsets[token.map[1]]});
+  }
+  // Also guard table-like lines that are already malformed (e.g. an em dash
+  // instead of '-' in the separator), which Markdown parses as plain text.
+  lines.forEach((line,i)=>{ if(line.includes('|') || line.includes('~~')) blocked.push({a:offsets[i],b:offsets[i+1]}); });
   const end = start + length, overlaps = r => r.a < end && r.b > start;
   const edits = [];
   if (style === 'clear') {
@@ -134,8 +145,8 @@ function transformNoteColor(source, start, length, style) {
       edits.push({a:color.a,b:color.innerA,text:''},{a:color.innerB,b:color.b,text:''});
     }
   } else {
-    if (blocked.some(overlaps) || code.some(r => overlaps(r) && !(start <= r.a && end >= r.b)))
-      return {error:'Выдели обычный текст или код вместе с обратными кавычками. Блоки кода не раскрашиваются.'};
+    if (blocked.some(overlaps) || code.some(overlaps))
+      return {error:'Раскрашивать можно только обычный текст, заголовки и курсив. Таблицы, формулы, жирный текст, ссылки, списки, цитаты и код защищены. Выделение не изменено.'};
     const kind = s => s.startsWith('text-') ? 'text' : s.startsWith('bg-') ? 'bg' : 'semantic';
     const replaced = colors.filter(c => c.innerA === start && c.innerB === end && kind(c.style) === kind(style));
     for(const c of replaced) edits.push({a:c.a,b:c.innerA,text:''},{a:c.innerB,b:c.b,text:''});
@@ -168,7 +179,7 @@ function transformNoteColor(source, start, length, style) {
     }
     return result;
   };
-  if(JSON.stringify(signature(verify.parse(source,{}))) !== JSON.stringify(signature(verify.parse(text,{}))))
+  if(style!=='clear' && JSON.stringify(signature(verify.parse(source,{}))) !== JSON.stringify(signature(verify.parse(text,{}))))
     return {error:'Такое выделение разрывает Markdown-разметку. Выдели слова внутри форматирования или фрагмент вместе со всеми его маркерами.'};
   const before = edits.filter(e => e.b<=start && e.a<start).reduce((n,e)=>n+e.text.length-(e.b-e.a),0);
   const selected = Math.max(0, length + edits.filter(e=>e.a>=start && e.b<=end).reduce((n,e)=>n+e.text.length-(e.b-e.a),0));
