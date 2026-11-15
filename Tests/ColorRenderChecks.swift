@@ -10,7 +10,7 @@ func runColorRenderChecks() {
   defer { notes.defaults.set(previous, forKey: "appearance") }
   notes.defaults.set("graphite", forKey: "appearance")
   notes.applyTheme()
-  notes.editor.string = "[Тема]{topic} [определение]{definition} [[Цветное слово]{text-green}]{bg-yellow} $x^2$"
+  notes.editor.string = "[# **Заголовок** $x^2$]{topic}\n\n## [Второй]{text-blue}\n\n[Тема]{topic} [определение]{definition} [[Цветное слово]{text-green}]{bg-yellow} $x^2$"
   notes.mode.selectedSegment = 1
   notes.renderMarkdown()
   func wait(_ condition: () -> Bool) {
@@ -29,10 +29,12 @@ func runColorRenderChecks() {
     wait { done }
     return result
   }
-  precondition(js("document.querySelectorAll('.note-color').length") as? Int == 4)
-  precondition(js("document.querySelectorAll('.katex').length") as? Int == 1)
+  precondition(js("document.querySelectorAll('.note-color').length") as? Int == 6)
+  precondition(js("document.querySelectorAll('.katex').length") as? Int == 2)
   precondition(js("getComputedStyle(document.querySelector('.note-topic')).color !== getComputedStyle(document.body).color") as? Bool == true)
   precondition(js("getComputedStyle(document.querySelector('.note-definition')).backgroundColor !== 'rgba(0, 0, 0, 0)'") as? Bool == true)
+  precondition(js("document.querySelector('#body h1 .note-topic strong').textContent") as? String == "Заголовок", "Wrapped source heading is a real colored h1 with bold text")
+  precondition(js("document.querySelector('#body h2 .note-text-blue').textContent") as? String == "Второй")
   let webView = notes.preview
   for (theme, color) in [("matteOrange", "rgb(33, 28, 24)"), ("graphite", "rgb(23, 27, 34)"), ("matteOrange", "rgb(33, 28, 24)")] {
     notes.defaults.set(theme, forKey: "appearance")
@@ -42,7 +44,7 @@ func runColorRenderChecks() {
     precondition(js("getComputedStyle(document.body).backgroundColor") as? String == color)
     precondition(js("window.findInNote('Цветное слово',0,false).count") as? Int == 1)
     _ = js("window.findInNote('',0,false)")
-    precondition(js("document.querySelectorAll('.note-color').length") as? Int == 4, "Search clearing preserves permanent colors")
+    precondition(js("document.querySelectorAll('.note-color').length") as? Int == 6, "Search clearing preserves permanent colors")
   }
   print("PASS: actual WebKit color styles, nested foreground/background, formulas, search clearing, live theme changes including root background")
 }

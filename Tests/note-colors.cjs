@@ -14,3 +14,21 @@ assert(md.render('[первая\nвторая]{definition}').includes('<br>'));
 assert(md.render('[текст с [скобками]]{topic}').includes('note-topic'));
 assert(md.render('[нет закрытия]{topic').includes('{topic'));
 console.log('PASS: all color styles, nesting, Markdown/math, multiline, code, escapes and unsafe input');
+
+// Whole-heading colors must retain Markdown block structure, including old saved markup.
+for (let level=1;level<=6;level++) {
+ const marker='#'.repeat(level);
+ for(const source of [`[${marker} **Тема** и $x^2$]{topic}`, `${marker} [**Тема** и $x^2$]{topic}`]) {
+  const html=md.render(source);
+  assert(html.startsWith(`<h${level}>`),source);
+  assert(html.includes('<strong>Тема</strong>') && html.includes('class="katex"'));
+  assert(html.includes('note-topic') && !html.includes(marker+' Тема'));
+ }
+}
+assert(md.render('абзац\n[# Заголовок]{topic}').includes('</p>\n<h1>'));
+assert(md.render('- [# Заголовок]{topic}').includes('<li>\n<h1>'));
+assert(md.render('> [## Заголовок]{definition}').includes('<h2>'));
+assert(!md.render('```\n[# Пример кода]{topic}\n```').includes('<h1>'));
+assert(!md.render('    [# Пример кода]{topic}').includes('<h1>'));
+assert(!md.render('[# Неизвестный]{unknown}').includes('<h1>'));
+console.log('PASS: colored headings h1–h6, existing wrapped headings, paragraphs, lists, quotes and literal code');

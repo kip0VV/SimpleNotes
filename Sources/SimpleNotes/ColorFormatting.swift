@@ -58,6 +58,24 @@ extension NotesApp {
       return
     }
     var range = original
+    // Keep block heading markers outside the inline color annotation.
+    // A line selected with its final newline should not put the closing marker
+    // on the following line.
+    if style != "clear" {
+      while range.length > 0 && ["\n", "\r"].contains(source.substring(with: NSRange(location: NSMaxRange(range) - 1, length: 1))) {
+        range.length -= 1
+      }
+      let line = source.lineRange(for: NSRange(location: range.location, length: 0))
+      if line.location == range.location {
+        let candidate = source.substring(with: range) as NSString
+        let heading = try! NSRegularExpression(pattern: "^ {0,3}#{1,6}[ \t]+")
+        if let prefix = heading.firstMatch(in: candidate as String, range: NSRange(location: 0, length: candidate.length)) {
+          range.location += prefix.range.length
+          range.length -= prefix.range.length
+        }
+      }
+      guard range.length > 0 else { return }
+    }
     var selected = source.substring(with: range)
     let pattern = "^\\{(?:topic|definition|important|example|(?:text|bg)-(?:orange|blue|green|yellow|pink|purple))\\}"
     // Changing a style replaces the same kind of surrounding annotation;
