@@ -1,20 +1,20 @@
 import Cocoa
 
-// Muted blue accents on neutral graphite; colors stay local to this theme.
+// Two matte palettes: graphite/blue and warm charcoal/orange.
 enum GraphitePalette {
-  static let canvas = EditorStyle.color("#171B22")!
-  static let surface = EditorStyle.color("#1D232C")!
-  static let sidebar = EditorStyle.color("#14191F")!
-  static let line = EditorStyle.color("#303C49")!
-  static let text = EditorStyle.color("#DFE7EF")!
-  static let muted = EditorStyle.color("#93A5B6")!
-  static let accent = EditorStyle.color("#9BCBE7")!
-  static let selection = EditorStyle.color("#2C4355")!
+  static var canvas: NSColor { EditorStyle.color(UserDefaults.standard.string(forKey: "appearance") == "matteOrange" ? "#211C18" : "#171B22")! }
+  static var surface: NSColor { EditorStyle.color(UserDefaults.standard.string(forKey: "appearance") == "matteOrange" ? "#29221D" : "#1D232C")! }
+  static var sidebar: NSColor { EditorStyle.color(UserDefaults.standard.string(forKey: "appearance") == "matteOrange" ? "#1B1714" : "#14191F")! }
+  static var line: NSColor { EditorStyle.color(UserDefaults.standard.string(forKey: "appearance") == "matteOrange" ? "#514032" : "#303C49")! }
+  static var text: NSColor { EditorStyle.color(UserDefaults.standard.string(forKey: "appearance") == "matteOrange" ? "#EEE2D6" : "#DFE7EF")! }
+  static var muted: NSColor { EditorStyle.color(UserDefaults.standard.string(forKey: "appearance") == "matteOrange" ? "#B5A18E" : "#93A5B6")! }
+  static var accent: NSColor { EditorStyle.color(UserDefaults.standard.string(forKey: "appearance") == "matteOrange" ? "#DCA16C" : "#9BCBE7")! }
+  static var selection: NSColor { EditorStyle.color(UserDefaults.standard.string(forKey: "appearance") == "matteOrange" ? "#62442D" : "#2C4355")! }
 }
 
 final class GraphiteRowView: NSTableRowView {
   override func drawSelection(in dirtyRect: NSRect) {
-    guard UserDefaults.standard.string(forKey: "appearance") == "graphite" else {
+    guard ["graphite", "matteOrange"].contains(UserDefaults.standard.string(forKey: "appearance") ?? "") else {
       super.drawSelection(in: dirtyRect)
       return
     }
@@ -30,12 +30,13 @@ final class GraphiteRowView: NSTableRowView {
 
 extension NotesApp {
   var isGraphite: Bool { defaults.string(forKey: "appearance") == "graphite" }
-  var editorBackgroundHex: String { editorStyle?.background ?? (isGraphite ? "#171B22" : "") }
-  var editorForegroundHex: String { editorStyle?.foreground ?? (isGraphite ? "#DFE7EF" : "") }
+  var isCustomTheme: Bool { isGraphite || defaults.string(forKey: "appearance") == "matteOrange" }
+  var editorBackgroundHex: String { editorStyle?.background ?? (isCustomTheme ? (isGraphite ? "#171B22" : "#211C18") : "") }
+  var editorForegroundHex: String { editorStyle?.foreground ?? (isCustomTheme ? (isGraphite ? "#DFE7EF" : "#EEE2D6") : "") }
 
   func applyGraphiteChrome() {
     guard let window = window else { return }
-    let graphite = isGraphite
+    let graphite = isCustomTheme
     window.backgroundColor = graphite ? GraphitePalette.surface : .windowBackgroundColor
     window.titlebarAppearsTransparent = graphite
     let outer = window.contentView

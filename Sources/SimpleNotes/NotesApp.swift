@@ -726,7 +726,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   func applyTheme() {
     switch defaults.string(forKey: "appearance") {
     case "light": NSApp.appearance = NSAppearance(named: .aqua)
-    case "dark", "graphite": NSApp.appearance = NSAppearance(named: .darkAqua)
+    case "dark", "graphite", "matteOrange": NSApp.appearance = NSAppearance(named: .darkAqua)
     default: NSApp.appearance = nil
     }
     applyGraphiteChrome()
@@ -1466,7 +1466,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     icon.image = NSImage(
       systemSymbolName: node.isFolder ? "folder.fill" : (isRootNote ? "note.text" : "doc.text"),
       accessibilityDescription: node.isFolder ? "Папка" : (isRootNote ? "Заметка без папки" : "Заметка"))
-    icon.contentTintColor = tint ?? (isGraphite ? GraphitePalette.accent : .secondaryLabelColor)
+    icon.contentTintColor = tint ?? (isCustomTheme ? GraphitePalette.accent : .secondaryLabelColor)
     icon.translatesAutoresizingMaskIntoConstraints = false
     cell.addSubview(icon)
     NSLayoutConstraint.activate([
@@ -1478,7 +1478,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     field.attributedStringValue = highlighted(
       field.stringValue,
       font: .systemFont(ofSize: 13, weight: node.isFolder ? .semibold : .regular),
-      color: tint ?? (isGraphite ? GraphitePalette.text : .labelColor))
+      color: tint ?? (isCustomTheme ? GraphitePalette.text : .labelColor))
     field.maximumNumberOfLines = 1
     field.lineBreakMode = .byTruncatingTail
     field.translatesAutoresizingMaskIntoConstraints = false

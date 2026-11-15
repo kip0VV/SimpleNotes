@@ -27,6 +27,7 @@ extension NotesApp {
     more.target = self
     more.action = #selector(formatText(_:))
     more.setAccessibilityLabel("Дополнительное форматирование")
+    controls.append(contentsOf: makeColorControls())
     controls.append(more)
     let bar = NSStackView(views: controls)
     bar.spacing = 4

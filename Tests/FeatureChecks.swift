@@ -138,7 +138,7 @@ func runFeatureChecks(notes: NotesApp, fixture: URL) throws {
     expect(notes.dirty, "Formatting marks the note dirty")
     expect(notes.editor.string == expected, "Formatting tag \(tag) with \(source.debugDescription)")
   }
-  expect(notes.makeFormattingBar().arrangedSubviews.count == 6, "Compact formatting icons and overflow menu")
+  expect(notes.makeFormattingBar().arrangedSubviews.count == 7, "Formatting icons, single color menu and overflow menu")
   for invalid in ["", ".hidden", "../bad", "a/b", "a:b", "a\nb", "a.app", String(repeating: "я", count: 101)] {
     expect(!notes.validEntryName(invalid), "Reject invalid name \(invalid.debugDescription)")
   }

@@ -84,7 +84,7 @@ final class NotesSettingsController: NSWindowController {
       line.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
     }
     heading("Оформление")
-    theme.addItems(withTitles: ["Системная", "Светлая", "Тёмная", "Графит · мягкий голубой"])
+    theme.addItems(withTitles: ["Системная", "Светлая", "Тёмная", "Графит · мягкий голубой", "Матовый оранжевый"])
     theme.target = self
     theme.action = #selector(changeTheme)
     row(NSTextField(labelWithString: "Тема приложения"), theme)
@@ -174,7 +174,7 @@ final class NotesSettingsController: NSWindowController {
 
   func refresh() {
     theme.selectItem(
-      at: ["system", "light", "dark", "graphite"].firstIndex(
+      at: ["system", "light", "dark", "graphite", "matteOrange"].firstIndex(
         of: app.defaults.string(forKey: "appearance") ?? "system") ?? 0)
     dates.state = app.showDates ? .on : .off
     hide.state = app.autoHide.state
@@ -196,7 +196,7 @@ final class NotesSettingsController: NSWindowController {
   @objc func resetStyle() { app.resetEditorStyle() }
   @objc func changeTheme() {
     let item = NSMenuItem()
-    item.representedObject = ["system", "light", "dark", "graphite"][theme.indexOfSelectedItem]
+    item.representedObject = ["system", "light", "dark", "graphite", "matteOrange"][theme.indexOfSelectedItem]
     app.changeTheme(item)
   }
   @objc func toggle(_ sender: NSButton) {

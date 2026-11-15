@@ -300,7 +300,7 @@ extension NotesApp {
     case "autoHide": toggleAutoHide()
     case "notifications": toggleNotifications()
     case "theme":
-      let values = ["system", "light", "dark", "graphite"]
+      let values = ["system", "light", "dark", "graphite", "matteOrange"]
       let index = values.firstIndex(of: defaults.string(forKey: "appearance") ?? "system") ?? 0
       defaults.set(values[(index + 1) % values.count], forKey: "appearance")
       applyTheme()

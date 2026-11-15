@@ -31,7 +31,7 @@ extension NotesApp {
       ?? .systemFont(ofSize: 16 * noteZoom)
     editor.backgroundColor = EditorStyle.color(editorBackgroundHex) ?? .textBackgroundColor
     editor.textColor = EditorStyle.color(editorForegroundHex) ?? .textColor
-    editor.insertionPointColor = isGraphite ? GraphitePalette.accent : (editor.textColor ?? .textColor)
+    editor.insertionPointColor = isCustomTheme ? GraphitePalette.accent : (editor.textColor ?? .textColor)
     lastPreviewPayload = nil
     if mode.selectedSegment == 1 { renderMarkdown() }
   }

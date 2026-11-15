@@ -1,0 +1,6 @@
+:root{--ink-orange:#a04d17;--ink-blue:#2267a1;--ink-green:#247344;--ink-yellow:#856400;--ink-pink:#a83365;--ink-purple:#7044a5;--mark-orange:#f3d3b4;--mark-blue:#cce4f5;--mark-green:#cde9d4;--mark-yellow:#f2e4a2;--mark-pink:#f1cfdf;--mark-purple:#dfd2f1}
+:root[data-note-theme="dark"]{--ink-orange:#e7b183;--ink-blue:#9ac7ea;--ink-green:#a4d4b0;--ink-yellow:#e3cf83;--ink-pink:#e7aac6;--ink-purple:#c5afe7;--mark-orange:#67452c;--mark-blue:#294c65;--mark-green:#30543b;--mark-yellow:#5d5128;--mark-pink:#60394d;--mark-purple:#4c3b66}
+.note-text-orange{color:var(--ink-orange)}.note-text-blue{color:var(--ink-blue)}.note-text-green{color:var(--ink-green)}.note-text-yellow{color:var(--ink-yellow)}.note-text-pink{color:var(--ink-pink)}.note-text-purple{color:var(--ink-purple)}
+.note-bg-orange{background:var(--mark-orange)}.note-bg-blue{background:var(--mark-blue)}.note-bg-green{background:var(--mark-green)}.note-bg-yellow{background:var(--mark-yellow)}.note-bg-pink{background:var(--mark-pink)}.note-bg-purple{background:var(--mark-purple)}
+.note-topic{color:var(--ink-orange);font-weight:600}.note-definition{background:var(--mark-blue)}.note-important{background:var(--mark-yellow)}.note-example{color:var(--ink-green)}
+.note-color{border-radius:.15em;box-decoration-break:clone;-webkit-box-decoration-break:clone}
