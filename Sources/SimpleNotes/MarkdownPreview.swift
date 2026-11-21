@@ -61,6 +61,7 @@ extension NotesApp {
         \(mathCSS)
         \(colorsCSS)
         .katex-display{overflow-x:auto;overflow-y:hidden;padding:.25em 0}.katex{overflow-wrap:normal}.math-error{color:var(--note-accent);white-space:pre-wrap}
+        body.reading-focus{padding-bottom:44px}
         html{background:\(editorBackgroundHex);color-scheme:dark light}
         body{font:16px -apple-system,BlinkMacSystemFont,sans-serif;line-height:1.65;margin:24px;overflow-wrap:anywhere}h1,h2,h3{line-height:1.25}h1{font-size:28px}h2{font-size:23px}h3{font-size:19px}pre{padding:16px;background:rgba(128,128,128,.15);border-radius:8px;overflow:auto}code{font-family:ui-monospace,monospace;font-size:.9em}blockquote{border-left:3px solid #888;margin-left:0;padding-left:16px;color:#888}table{border-collapse:collapse;display:block;overflow:auto}th,td{border:1px solid #888;padding:7px 12px}a{color:var(--note-accent,#609bff)}.task-item{list-style:none}.task-item input{margin-left:-1.4em;margin-right:.45em;accent-color:var(--note-accent,#ff575f);cursor:pointer}.date{color:#888;font-size:12px}hr{border:0;border-top:1px solid #888}
         </style></head><body><h1 id="title"></h1><div class="date" id="date"></div><main id="body"></main><script>\(script)
@@ -112,6 +113,7 @@ extension NotesApp {
       webView.loadHTMLString(html, baseURL: nil)
     }
     guard previewReady else { return }
+    updateReadingFocusStyle()
     do {
       let data = try JSONSerialization.data(withJSONObject: [
         editor.string, titleField.stringValue,

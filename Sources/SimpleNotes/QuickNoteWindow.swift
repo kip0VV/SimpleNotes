@@ -118,6 +118,7 @@ extension NotesApp {
   }
 
   func openQuickNote() {
+    leaveReadingFocus()
     guard startupComplete, window != nil else {
       pendingQuickNote = true
       return

@@ -56,6 +56,9 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   var touchSwipeRecognized = false
   var settingsController: NotesSettingsController?
   var historyController: NoteHistoryController?
+  let readingFocus = ReadingFocusController()
+  let readingFocusButton = NSButton()
+  var readingFocusPreviousMode = 0
   let reminderList = ReminderListStack()
   let reminderScroll = NSScrollView()
   let reminderHeading = NSTextField(labelWithString: "Напоминания")
@@ -295,10 +298,11 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     saveNoteButton = save
     save.bezelStyle = .rounded
     let history = NSButton(title: "История", target: self, action: #selector(showNoteHistory))
+    configureReadingFocusButton()
     let zoomControls = makeZoomControls()
     for item in [
       heading, menuToggle, row, titleField, mode, noteFindBar, newNoteButton, scroll, previewContainer, status,
-      recentButton, save, history, headerHandle, topicHandle, formatting, zoomControls,
+      recentButton, save, history, headerHandle, topicHandle, formatting, zoomControls, readingFocusButton,
     ] {
       item.translatesAutoresizingMaskIntoConstraints = false
       view.addSubview(item)
@@ -370,6 +374,8 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       history.centerYAnchor.constraint(equalTo: save.centerYAnchor),
       save.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
       save.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
+      readingFocusButton.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -8),
+      readingFocusButton.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: -8),
     ])
     regularConstraints = view.constraints
     configureQuickChrome(in: view)
@@ -391,7 +397,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       quickStatus.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 16),
     ]
     regularHiddenViews = [heading, menuToggle, row, titleField, mode, noteFindBar, newNoteButton, previewContainer,
-      status, recentButton, save, history, headerHandle, topicHandle, formatting, zoomControls]
+      status, recentButton, save, history, headerHandle, topicHandle, formatting, zoomControls, readingFocusButton]
     headerLabels = [mode, menuToggle, newNoteButton]
     let headerViews: [NSView] = [heading, menuToggle, row, titleField, mode, noteFindBar, newNoteButton]
     scaledConstraints = view.constraints.filter { constraint in
@@ -599,7 +605,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     }
   }
   func processWindowGesture(_ event: NSEvent) -> Bool {
-    if defaults.bool(forKey: "disableSidebarSwipe") {
+    if readingFocus.isActive || defaults.bool(forKey: "disableSidebarSwipe") {
       swipe = HorizontalSwipe()
       touchOrigin = nil
       touchSwipeRecognized = false
@@ -658,7 +664,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     return ended ? alreadyHandled : swipe.recognized
   }
   func handleHover(_ point: NSPoint, in outer: NSView) {
-    guard !quickMode, !menuTracking, Date() >= suppressHoverUntil else { return }
+    guard !quickMode, !readingFocus.isActive, !menuTracking, Date() >= suppressHoverUntil else { return }
     if menuVisible && Date() < manualRevealUntil { return }
     let inRevealZone = point.x >= outer.bounds.width - 24
     let outsideHoldZone = point.x < outer.bounds.width - sidebarWidth.constant - 80
@@ -686,7 +692,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     }
   }
   func setMenuVisible(_ visible: Bool, animated: Bool = false) {
-    guard !quickMode else { return }
+    guard !quickMode, !readingFocus.isActive else { return }
     hoverTimer?.invalidate()
     hoverTimer = nil
     pendingVisibility = nil
@@ -747,9 +753,10 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     }
     applyGraphiteChrome()
     applyEditorStyle()
+    updateReadingFocusButton()
   }
   func windowDidResize(_ notification: Notification) {
-    guard !quickMode, sidebarWidth != nil, headerHeight != nil else { return }
+    guard !quickMode, !readingFocus.isActive, sidebarWidth != nil, headerHeight != nil else { return }
     setMenuVisible(menuVisible)
     applyHeaderScale(CGFloat(defaults.object(forKey: "headerScale") as? Double ?? 1))
     renderSidebarReminders()
@@ -2129,6 +2136,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     openNote(node.url)
   }
   func openNote(_ url: URL) {
+    leaveReadingFocus()
     if url == currentURL, loadedContent != nil {
       refreshOpenNoteFromDisk(force: true)
       recordRecent(url)
@@ -2193,6 +2201,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   }
 
   func resetNoteForWriting() {
+    leaveReadingFocus()
     quickAutomaticTitle = false
     currentURL = nil
     loadedContent = nil

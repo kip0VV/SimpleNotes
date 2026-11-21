@@ -28,6 +28,8 @@ extension NotesApp {
       NoteAction(
         id: "preview", title: "Рендер заметки", group: "Навигация", key: "p",
         modifiers: [.command, .shift]),
+      NoteAction(id: "readingFocus", title: "Рендер на всё окно", group: "Навигация", key: "f",
+        modifiers: [.command, .shift]),
       NoteAction(id: "editor", title: "Вернуться в редактор", group: "Навигация", key: "e"),
       NoteAction(id: "recent", title: "Недавние заметки", group: "Навигация"),
       NoteAction(id: "refresh", title: "Обновить список заметок", group: "Навигация", key: "r"),
@@ -100,6 +102,11 @@ extension NotesApp {
         event.window == nil || event.window === self.window
       else { return event }
       let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+      if event.keyCode == 53, flags.isEmpty, self.readingFocus.isActive,
+        self.window.attachedSheet == nil {
+        self.leaveReadingFocus()
+        return nil
+      }
       guard !flags.intersection([.command, .option, .control]).isEmpty else { return event }
       let character = Self.shortcutCharacter(keyCode: UInt32(event.keyCode))
       if self.mode.selectedSegment == 1, character == "z",
@@ -136,6 +143,7 @@ extension NotesApp {
   }
 
   func updateActionShortcuts() {
+    updateReadingFocusButton()
     if let action = noteActions.first(where: { $0.id == "normalWindow" }) {
       let suffix = actionBinding(action).0.isEmpty ? "" : "  " + bindingLabel(action)
       expandButton.title = "Основное окно" + suffix
@@ -258,6 +266,10 @@ extension NotesApp {
     guard let id = sender.representedObject as? String,
       let action = noteActions.first(where: { $0.id == id })
     else { return }
+    if readingFocus.isActive && !["readingFocus", "preview", "save", "zoomIn", "zoomOut", "zoomReset",
+      "noteFindNext", "noteFindPrevious", "dates", "theme"].contains(id) {
+      leaveReadingFocus()
+    }
     if let tag = action.formatTag {
       let control = NSButton()
       control.tag = tag
@@ -268,6 +280,7 @@ extension NotesApp {
       expandQuickNote()
     }
     switch id {
+    case "readingFocus": toggleReadingFocus()
     case "normalWindow": expandQuickNote()
     case "new":
       if quickMode { openQuickNote() } else { newNote() }
