@@ -1,8 +1,15 @@
 import Cocoa
+import UniformTypeIdentifiers
 
 final class NotesSettingsController: NSWindowController {
   unowned let app: NotesApp
   let theme = NSPopUpButton()
+  let pdfNotes = NSPopUpButton()
+  let pdfExport = NSButton(title: "Экспортировать PDF…", target: nil, action: nil)
+  let pdfStatus = NSTextField(wrappingLabelWithString: "")
+  let pdfExporter = NotePDFExporter()
+  var pdfSelection = PDFNoteSelection(notes: [], preferred: nil)
+  var exportingPDF = false
   let dates = NSButton(checkboxWithTitle: "Показывать дату заметки", target: nil, action: nil)
   let hide = NSButton(
     checkboxWithTitle: "Скрывать меню при уходе курсора", target: nil, action: nil)
@@ -126,6 +133,25 @@ final class NotesSettingsController: NSWindowController {
       control.target = self
       control.action = #selector(toggle(_:))
     }
+    let export = tab("Экспорт PDF")
+    let exportHeading = NSTextField(labelWithString: "Экспорт в PDF")
+    exportHeading.font = .boldSystemFont(ofSize: 14)
+    export.addArrangedSubview(exportHeading)
+    let exportHint = NSTextField(wrappingLabelWithString:
+      "Выбери заметку и место сохранения PDF. Markdown, таблицы, формулы и цвета сохраняются. Для открытой заметки экспортируется текущий текст редактора.")
+    export.addArrangedSubview(exportHint)
+    exportHint.widthAnchor.constraint(equalTo: export.widthAnchor).isActive = true
+    pdfNotes.setAccessibilityLabel("Заметка для экспорта в PDF")
+    pdfNotes.target = self
+    pdfNotes.action = #selector(selectPDFNote)
+    export.addArrangedSubview(pdfNotes)
+    pdfNotes.widthAnchor.constraint(equalTo: export.widthAnchor).isActive = true
+    pdfExport.target = self
+    pdfExport.action = #selector(exportPDF)
+    export.addArrangedSubview(pdfExport)
+    pdfStatus.textColor = .secondaryLabelColor
+    export.addArrangedSubview(pdfStatus)
+    pdfStatus.widthAnchor.constraint(equalTo: export.widthAnchor).isActive = true
     let keyboard = tab("Горячие клавиши")
     let description = NSTextField(
       wrappingLabelWithString:
@@ -186,9 +212,70 @@ final class NotesSettingsController: NSWindowController {
     shortcut.stringValue =
       (app.defaults.string(forKey: "quickNoteLabel") ?? "Не назначено")
     folder.stringValue = app.root.path
+    refreshPDFNotes()
     for action in app.noteActions {
       actionLabels[action.id]?.stringValue = app.bindingLabel(action)
     }
+  }
+
+  func refreshPDFNotes() {
+    let preferred = pdfSelection.selectedURL ?? app.currentURL
+    do {
+      var scanner = NoteIndexScanner(root: app.root, order: [:], cache: [:])
+      func files(_ nodes: [NoteNode]) -> [URL] {
+        nodes.flatMap { $0.isFolder ? files($0.children) : [$0.url] }
+      }
+      let notes = files(try scanner.scan()).sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+      pdfSelection = PDFNoteSelection(notes: notes, preferred: preferred)
+      pdfNotes.removeAllItems()
+      pdfNotes.addItems(withTitles: notes.map { String($0.path.dropFirst(app.root.path.count + 1)) })
+      pdfNotes.selectItem(at: pdfSelection.selectedIndex)
+      pdfNotes.isEnabled = !exportingPDF && !notes.isEmpty
+      pdfExport.isEnabled = !exportingPDF && pdfSelection.selectedURL != nil
+      if !exportingPDF { pdfStatus.stringValue = notes.isEmpty ? "Сначала сохрани хотя бы одну заметку." : "" }
+    } catch {
+      pdfSelection = PDFNoteSelection(notes: [], preferred: nil)
+      pdfNotes.removeAllItems()
+      pdfNotes.isEnabled = false
+      pdfExport.isEnabled = false
+      pdfStatus.stringValue = error.localizedDescription
+    }
+  }
+  @objc func selectPDFNote() {
+    pdfSelection.selectedIndex = pdfNotes.indexOfSelectedItem
+    pdfExport.isEnabled = !exportingPDF && pdfSelection.selectedURL != nil
+  }
+  @objc func exportPDF() {
+    guard !exportingPDF, !app.saveInProgress else { return }
+    do {
+      try pdfSelection.export { url in
+        let note: NoteVersion
+        if url == app.currentURL {
+          note = NoteVersion(title: app.titleField.stringValue, body: app.editor.string)
+        } else {
+          note = NoteVersion.read(try String(contentsOf: url, encoding: .utf8), url: url)
+        }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = url.deletingPathExtension().lastPathComponent + ".pdf"
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+        guard let resources = Bundle.main.resourceURL else { throw CocoaError(.fileReadNoSuchFile) }
+        exportingPDF = true
+        pdfExport.isEnabled = false
+        pdfNotes.isEnabled = false
+        pdfStatus.stringValue = "Создаётся PDF…"
+        pdfExporter.export(note: note, to: destination, resources: resources) { [weak self] result in
+          guard let self = self else { return }
+          self.exportingPDF = false
+          self.pdfExport.isEnabled = self.pdfSelection.selectedURL != nil
+          self.pdfNotes.isEnabled = !self.pdfSelection.notes.isEmpty
+          switch result {
+          case .success(let url): self.pdfStatus.stringValue = "✓ Сохранено: " + url.path
+          case .failure(let error): self.pdfStatus.stringValue = "Ошибка экспорта: " + error.localizedDescription
+          }
+        }
+      }
+    } catch { pdfStatus.stringValue = "Ошибка экспорта: " + error.localizedDescription }
   }
 
   @objc func chooseFont() { app.chooseEditorFont() }

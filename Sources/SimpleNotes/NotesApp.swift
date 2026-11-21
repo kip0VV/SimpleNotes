@@ -55,6 +55,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
   var touchOrigin: NSPoint?
   var touchSwipeRecognized = false
   var settingsController: NotesSettingsController?
+  var historyController: NoteHistoryController?
   let reminderList = ReminderListStack()
   let reminderScroll = NSScrollView()
   let reminderHeading = NSTextField(labelWithString: "Напоминания")
@@ -293,10 +294,11 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     let save = NSButton(title: "Сохранить заметку  ⌘↩", target: self, action: #selector(saveNote))
     saveNoteButton = save
     save.bezelStyle = .rounded
+    let history = NSButton(title: "История", target: self, action: #selector(showNoteHistory))
     let zoomControls = makeZoomControls()
     for item in [
       heading, menuToggle, row, titleField, mode, noteFindBar, newNoteButton, scroll, previewContainer, status,
-      recentButton, save, headerHandle, topicHandle, formatting, zoomControls,
+      recentButton, save, history, headerHandle, topicHandle, formatting, zoomControls,
     ] {
       item.translatesAutoresizingMaskIntoConstraints = false
       view.addSubview(item)
@@ -363,7 +365,9 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       status.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
       zoomControls.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
       zoomControls.centerYAnchor.constraint(equalTo: save.centerYAnchor),
-      zoomControls.trailingAnchor.constraint(lessThanOrEqualTo: save.leadingAnchor, constant: -12),
+      zoomControls.trailingAnchor.constraint(lessThanOrEqualTo: history.leadingAnchor, constant: -12),
+      history.trailingAnchor.constraint(equalTo: save.leadingAnchor, constant: -12),
+      history.centerYAnchor.constraint(equalTo: save.centerYAnchor),
       save.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
       save.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
     ])
@@ -387,7 +391,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       quickStatus.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 16),
     ]
     regularHiddenViews = [heading, menuToggle, row, titleField, mode, noteFindBar, newNoteButton, previewContainer,
-      status, recentButton, save, headerHandle, topicHandle, formatting, zoomControls]
+      status, recentButton, save, history, headerHandle, topicHandle, formatting, zoomControls]
     headerLabels = [mode, menuToggle, newNoteButton]
     let headerViews: [NSView] = [heading, menuToggle, row, titleField, mode, noteFindBar, newNoteButton]
     scaledConstraints = view.constraints.filter { constraint in
@@ -979,6 +983,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       ? body : "\(title)\n\(date)\nТема — \(topic.isEmpty ? "Без папки" : topic)\n\n\(body)"
     let oldURL = currentURL, baseline = loadedContent, directory = root
     let originalTitle = titleField.stringValue
+    var versionWarning: String?
     let write = { () throws -> URL in
       if let oldURL = oldURL {
         guard try String(contentsOf: oldURL, encoding: .utf8) == baseline else {
@@ -1017,6 +1022,14 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
         // Keep the original until the complete replacement has been written.
         try SafeNoteWrite.archive(old, expected: baseline, root: directory)
       }
+      do {
+        let history = NoteVersionHistory(root: directory)
+        if let old = oldURL {
+          if let baseline = baseline { try history.record(NoteVersion.read(baseline, url: old), for: old) }
+          try history.remap(from: old, to: destination)
+        }
+        try history.record(NoteVersion(title: title, body: body), for: destination)
+      } catch { versionWarning = error.localizedDescription }
       return destination
     }
     func finish(_ result: Result<URL, Error>) -> Bool {
@@ -1053,6 +1066,9 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
         status.stringValue =
           "Сохранено в «\(topic.isEmpty ? "Без папки" : topic)»"
           + (showDates && !date.isEmpty ? " · \(date)" : "")
+        if let warning = versionWarning {
+          status.stringValue = "Заметка сохранена, но история недоступна: " + warning
+        }
         if mode.selectedSegment == 1 { renderMarkdown() }
         return true
       }
@@ -1436,7 +1452,14 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
         showError("В этой папке уже есть файл или тема с таким названием. Перенос отменён.")
         return false
       }
-      if source != target { try FileManager.default.moveItem(at: source, to: target) }
+      if source != target {
+        try FileManager.default.moveItem(at: source, to: target)
+        do { try NoteVersionHistory(root: root).remap(from: source, to: target) }
+        catch {
+          try FileManager.default.moveItem(at: target, to: source)
+          throw error
+        }
+      }
       ordered.insert(target.lastPathComponent, at: min(max(0, insertion), ordered.count))
       var order = customOrder
       if oldParent.path != parent.path {
@@ -1944,6 +1967,7 @@ final class NotesApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
       try FileManager.default.moveItem(at: target, to: source)
       throw error
     }
+    try NoteVersionHistory(root: root).remap(from: source, to: target)
     remapColors(from: source, to: target)
     if let opened = currentURL, opened == source || opened.path.hasPrefix(source.path + "/") {
       let suffix = String(opened.path.dropFirst(source.path.count))

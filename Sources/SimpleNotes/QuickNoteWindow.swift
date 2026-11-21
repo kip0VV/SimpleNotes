@@ -21,6 +21,9 @@ extension NotesApp {
     quickMore.addItem(withTitle: "Новая быстрая запись")
     quickMore.lastItem?.target = self
     quickMore.lastItem?.action = #selector(startNextQuickNote)
+    quickMore.addItem(withTitle: "История заметки…")
+    quickMore.lastItem?.target = self
+    quickMore.lastItem?.action = #selector(showNoteHistory)
     quickMore.addItem(withTitle: "Настройки…")
     quickMore.lastItem?.target = self
     quickMore.lastItem?.action = #selector(showSettings)
